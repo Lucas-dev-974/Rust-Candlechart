@@ -27,6 +27,7 @@ pub mod tools_panel_canvas;
 pub mod series_select;
 pub mod settings;
 pub mod messages;
+pub mod simple;
 
 pub use state::ChartState;
 pub use widget::chart;

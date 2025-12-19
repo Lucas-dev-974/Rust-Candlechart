@@ -1,0 +1,21 @@
+[package]
+name = "crateTeste"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "crateTeste"
+path = "src/main.rs"
+
+[[bin]]
+name = "simple"
+path = "src/main_simple.rs"
+
+[[bin]]
+name = "advanced"
+path = "src/main_advanced.rs"
+
+[dependencies]
+# Utiliser le nom de la librairie (candlechart) défini dans [lib] du Cargo.toml parent
+candlechart = { path = "../", package = "CandleChart" }
+iced = { version = "0.14", features = ["canvas", "tokio"] }
