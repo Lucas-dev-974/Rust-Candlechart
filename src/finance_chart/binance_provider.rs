@@ -107,6 +107,22 @@ impl BinanceProvider {
         Ok(candles.into_iter().last())
     }
 
+    /// Récupère les nouvelles bougies depuis un timestamp de manière asynchrone (pour Iced Tasks)
+    ///
+    /// Cette méthode permet de faire des requêtes en parallèle sans bloquer le thread principal.
+    pub async fn fetch_new_candles_async(&self, series_id: &SeriesId, since_timestamp: i64) -> Result<Vec<Candle>, String> {
+        let (symbol, interval) = self.parse_series_id(series_id)?;
+        let start_time_ms = since_timestamp * 1000;
+        self.fetch_klines(&symbol, &interval, Some(start_time_ms), None, Some(1000)).await
+    }
+
+    /// Récupère toutes les bougies de manière asynchrone (pour Iced Tasks)
+    ///
+    /// Cette méthode permet de faire des requêtes en parallèle sans bloquer le thread principal.
+    pub async fn fetch_all_candles_async(&self, series_id: &SeriesId) -> Result<Vec<Candle>, String> {
+        self.fetch_new_candles_async(series_id, 0).await
+    }
+
 
     /// Extrait le symbole et l'intervalle depuis un SeriesId
     ///

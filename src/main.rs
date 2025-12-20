@@ -190,6 +190,7 @@ enum Message {
     RealtimeUpdate,
     RealtimeUpdateComplete(Vec<(SeriesId, String, Result<Option<Candle>, String>)>),
     CompleteMissingData,
+    CompleteMissingDataComplete(Vec<(SeriesId, String, Result<Vec<Candle>, String>)>),
     
     // === Messages de configuration des providers ===
     OpenProviderConfig,
@@ -596,7 +597,12 @@ impl ChartApp {
             
             // === Messages temps réel ===
             Message::CompleteMissingData => {
-                self.complete_missing_data();
+                self.complete_missing_data()
+            }
+            
+            Message::CompleteMissingDataComplete(results) => {
+                println!("📥 CompleteMissingDataComplete: {} résultats reçus", results.len());
+                self.apply_complete_missing_data_results(results);
                 Task::none()
             }
             
@@ -613,7 +619,9 @@ impl ChartApp {
     }
     
     /// Complète les données manquantes depuis Binance pour toutes les séries
-    fn complete_missing_data(&mut self) {
+    /// 
+    /// Utilise Iced Tasks pour faire les requêtes en parallèle sans bloquer le thread principal.
+    fn complete_missing_data(&mut self) -> Task<Message> {
         println!("🔄 Complétion des données manquantes depuis Binance...");
         
         // Collecter toutes les informations nécessaires d'abord
@@ -634,68 +642,105 @@ impl ChartApp {
             updates.push((series_id, series_name, last_ts));
         }
         
-        // Maintenant faire les mises à jour
-        for (series_id, series_name, last_ts) in updates {
-            
-            if let Some(last_timestamp) = last_ts {
-                // Calculer le timestamp actuel
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs() as i64;
+        if updates.is_empty() {
+            println!("ℹ️  Aucune série à compléter");
+            return Task::none();
+        }
+        
+        // Cloner le provider pour l'utiliser dans la Task async
+        let provider = self.binance_provider.clone();
+        
+        // Calculer le timestamp actuel une seule fois
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        
+        // Créer une Task async qui fait toutes les requêtes en parallèle
+        println!("🚀 Démarrage des requêtes async pour {} série(s)", updates.len());
+        Task::perform(
+            async move {
+                use futures::future::join_all;
                 
-                // Extraire l'intervalle depuis le nom de la série (format: SYMBOL_INTERVAL)
-                let interval = series_name.split('_').last().unwrap_or("1h");
+                // Créer un vecteur de futures pour toutes les requêtes
+                let futures: Vec<_> = updates
+                    .into_iter()
+                    .map(|(series_id, series_name, last_ts)| {
+                        let provider = provider.clone();
+                        let series_id_clone = series_id.clone();
+                        let series_name_clone = series_name.clone();
+                        
+                        async move {
+                            let result = if let Some(last_timestamp) = last_ts {
+                                // Extraire l'intervalle depuis le nom de la série (format: SYMBOL_INTERVAL)
+                                let interval = series_name_clone.split('_').last().unwrap_or("1h");
+                                
+                                // Calculer le seuil pour déterminer si les données sont récentes (2 intervalles)
+                                let threshold_seconds = calculate_candles_back_timestamp(interval, 2);
+                                
+                                // Si les données sont récentes (moins de 2 intervalles), on complète
+                                // Sinon, on récupère depuis le dernier timestamp
+                                let since_ts = if now - last_timestamp < threshold_seconds {
+                                    last_timestamp
+                                } else {
+                                    // Si les données sont anciennes, on récupère les 100 dernières bougies
+                                    println!("  ℹ️  {}: Données anciennes, récupération des 100 dernières bougies", series_name_clone);
+                                    // Calculer dynamiquement selon l'intervalle
+                                    now - calculate_candles_back_timestamp(interval, 100)
+                                };
+                                
+                                println!("  📥 {}: Récupération depuis le timestamp {}", series_name_clone, since_ts);
+                                provider.fetch_new_candles_async(&series_id_clone, since_ts).await
+                            } else {
+                                // Aucune donnée, synchroniser complètement
+                                println!("  📥 {}: Aucune donnée, synchronisation complète", series_name_clone);
+                                provider.fetch_all_candles_async(&series_id_clone).await
+                            };
+                            
+                            (series_id, series_name_clone, result)
+                        }
+                    })
+                    .collect();
                 
-                // Calculer le seuil pour déterminer si les données sont récentes (2 intervalles)
-                let threshold_seconds = calculate_candles_back_timestamp(interval, 2);
-                
-                // Si les données sont récentes (moins de 2 intervalles), on complète
-                // Sinon, on récupère depuis le dernier timestamp
-                let since_ts = if now - last_timestamp < threshold_seconds {
-                    last_timestamp
-                } else {
-                    // Si les données sont anciennes, on récupère les 100 dernières bougies
-                    println!("  ℹ️  {}: Données anciennes, récupération des 100 dernières bougies", series_name);
-                    // Calculer dynamiquement selon l'intervalle
-                    now - calculate_candles_back_timestamp(interval, 100)
-                };
-                
-                println!("  📥 {}: Récupération depuis le timestamp {}", series_name, since_ts);
-                
-                match self.chart_state.fetch_new_candles_from_provider(
-                    &series_id,
-                    since_ts,
-                    &self.binance_provider,
-                ) {
-                    UpdateResult::MultipleCandlesAdded(n) => {
-                        println!("  ✅ {}: {} nouvelles bougies ajoutées", series_name, n);
-                    }
-                    UpdateResult::NoUpdate => {
+                // Exécuter toutes les requêtes en parallèle
+                let results = join_all(futures).await;
+                println!("✅ Toutes les requêtes async terminées");
+                results
+            },
+            Message::CompleteMissingDataComplete,
+        )
+    }
+    
+    /// Applique les résultats de la complétion des données manquantes
+    fn apply_complete_missing_data_results(&mut self, results: Vec<(SeriesId, String, Result<Vec<Candle>, String>)>) {
+        let mut has_updates = false;
+        
+        for (series_id, series_name, result) in results {
+            match result {
+                Ok(candles) => {
+                    if candles.is_empty() {
                         println!("  ℹ️  {}: Aucune nouvelle bougie", series_name);
+                    } else {
+                        match self.chart_state.merge_candles(&series_id, candles) {
+                            UpdateResult::MultipleCandlesAdded(n) => {
+                                println!("  ✅ {}: {} nouvelles bougies ajoutées", series_name, n);
+                                has_updates = true;
+                            }
+                            UpdateResult::Error(e) => {
+                                println!("  ❌ {}: Erreur lors de la fusion - {}", series_name, e);
+                            }
+                            _ => {}
+                        }
                     }
-                    UpdateResult::Error(e) => {
-                        println!("  ❌ {}: Erreur - {}", series_name, e);
-                    }
-                    _ => {}
                 }
-            } else {
-                // Aucune donnée, synchroniser complètement
-                println!("  📥 {}: Aucune donnée, synchronisation complète", series_name);
-                match self.chart_state.sync_from_provider(&series_id, &self.binance_provider) {
-                    UpdateResult::MultipleCandlesAdded(n) => {
-                        println!("  ✅ {}: {} bougies synchronisées", series_name, n);
-                    }
-                    UpdateResult::Error(e) => {
-                        println!("  ❌ {}: Erreur - {}", series_name, e);
-                    }
-                    _ => {}
+                Err(e) => {
+                    println!("  ❌ {}: Erreur - {}", series_name, e);
                 }
             }
         }
         
         // Ajuster le viewport une seule fois à la fin (si auto-scroll activé)
-        if self.chart_style.auto_scroll_enabled {
+        if has_updates && self.chart_style.auto_scroll_enabled {
             self.chart_state.auto_scroll_to_latest();
         }
         println!("✅ Complétion terminée");
