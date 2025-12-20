@@ -27,7 +27,8 @@ pub mod tools_panel_canvas;
 pub mod series_select;
 pub mod settings;
 pub mod messages;
-pub mod simple;
+pub mod realtime;
+pub mod binance_provider;
 
 pub use state::ChartState;
 pub use widget::chart;
@@ -38,4 +39,6 @@ pub use tools_panel_canvas::{tools_panel, TOOLS_PANEL_WIDTH};
 pub use series_select::series_select_box;
 pub use settings::{ChartStyle, SettingsState};
 pub use messages::{ChartMessage, YAxisMessage, XAxisMessage, ToolsPanelMessage, SeriesPanelMessage};
+pub use realtime::UpdateResult;
+pub use binance_provider::BinanceProvider;
 

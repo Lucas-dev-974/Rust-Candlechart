@@ -118,6 +118,30 @@ impl SeriesManager {
     pub fn total_count(&self) -> usize {
         self.series.len()
     }
+
+    /// Met à jour ou ajoute une bougie à une série spécifique
+    ///
+    /// # Retourne
+    /// - `Some(Ok(true))` si la bougie a été mise à jour (même timestamp)
+    /// - `Some(Ok(false))` si une nouvelle bougie a été ajoutée (nouveau timestamp)
+    /// - `Some(Err(e))` si la bougie est invalide
+    /// - `None` si la série n'existe pas
+    pub fn update_series_candle(&mut self, id: &SeriesId, candle: Candle) -> Option<Result<bool, super::timeseries::ValidationError>> {
+        self.series.get_mut(id).map(|series| {
+            series.data.update_or_append_candle(candle)
+        })
+    }
+
+    /// Fusionne plusieurs bougies dans une série spécifique
+    ///
+    /// # Retourne
+    /// - `Some(n)` avec le nombre de nouvelles bougies ajoutées
+    /// - `None` si la série n'existe pas
+    pub fn merge_series_candles(&mut self, id: &SeriesId, candles: Vec<Candle>) -> Option<usize> {
+        self.series.get_mut(id).map(|series| {
+            series.data.merge_candles(candles)
+        })
+    }
 }
 
 impl Default for SeriesManager {

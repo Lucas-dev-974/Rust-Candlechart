@@ -45,6 +45,10 @@ pub enum LoadError {
     FileOpen(std::io::Error),
     /// Erreur de parsing JSON
     JsonParse(serde_json::Error),
+    /// Erreur de validation des données
+    Validation(String),
+    /// Fichier trop volumineux
+    FileTooLarge { size: u64, max_size: u64 },
 }
 
 impl std::fmt::Display for LoadError {
@@ -52,11 +56,102 @@ impl std::fmt::Display for LoadError {
         match self {
             LoadError::FileOpen(e) => write!(f, "Erreur d'ouverture du fichier: {}", e),
             LoadError::JsonParse(e) => write!(f, "Erreur de parsing JSON: {}", e),
+            LoadError::Validation(msg) => write!(f, "Erreur de validation: {}", msg),
+            LoadError::FileTooLarge { size, max_size } => {
+                write!(f, "Fichier trop volumineux: {} bytes (max: {} bytes)", size, max_size)
+            }
         }
     }
 }
 
 impl std::error::Error for LoadError {}
+
+/// Taille maximale d'un fichier JSON (100 MB)
+const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
+
+/// Nombre maximum de bougies par fichier
+const MAX_CANDLES: usize = 1_000_000;
+
+/// Valide les données JSON chargées
+fn validate_json_data(data: &JsonData) -> Result<(), LoadError> {
+    // Vérifier que le symbole n'est pas vide
+    if data.symbol.trim().is_empty() {
+        return Err(LoadError::Validation("Le symbole ne peut pas être vide".to_string()));
+    }
+    
+    // Vérifier que l'intervalle n'est pas vide
+    if data.interval.trim().is_empty() {
+        return Err(LoadError::Validation("L'intervalle ne peut pas être vide".to_string()));
+    }
+    
+    // Vérifier le nombre de bougies
+    if data.klines.len() > MAX_CANDLES {
+        return Err(LoadError::Validation(format!(
+            "Trop de bougies: {} (max: {})",
+            data.klines.len(),
+            MAX_CANDLES
+        )));
+    }
+    
+    // Valider chaque bougie
+    for (idx, kline) in data.klines.iter().enumerate() {
+        // Vérifier que les prix sont valides (positifs et finis)
+        if !kline.open.is_finite() || kline.open <= 0.0 {
+            return Err(LoadError::Validation(format!(
+                "Bougie {}: prix d'ouverture invalide: {}",
+                idx, kline.open
+            )));
+        }
+        if !kline.high.is_finite() || kline.high <= 0.0 {
+            return Err(LoadError::Validation(format!(
+                "Bougie {}: prix maximum invalide: {}",
+                idx, kline.high
+            )));
+        }
+        if !kline.low.is_finite() || kline.low <= 0.0 {
+            return Err(LoadError::Validation(format!(
+                "Bougie {}: prix minimum invalide: {}",
+                idx, kline.low
+            )));
+        }
+        if !kline.close.is_finite() || kline.close <= 0.0 {
+            return Err(LoadError::Validation(format!(
+                "Bougie {}: prix de clôture invalide: {}",
+                idx, kline.close
+            )));
+        }
+        
+        // Vérifier la cohérence OHLC (high >= low, high >= open/close, low <= open/close)
+        if kline.high < kline.low {
+            return Err(LoadError::Validation(format!(
+                "Bougie {}: high ({}) < low ({})",
+                idx, kline.high, kline.low
+            )));
+        }
+        if kline.high < kline.open || kline.high < kline.close {
+            return Err(LoadError::Validation(format!(
+                "Bougie {}: high ({}) doit être >= open ({}) et close ({})",
+                idx, kline.high, kline.open, kline.close
+            )));
+        }
+        if kline.low > kline.open || kline.low > kline.close {
+            return Err(LoadError::Validation(format!(
+                "Bougie {}: low ({}) doit être <= open ({}) et close ({})",
+                idx, kline.low, kline.open, kline.close
+            )));
+        }
+        
+        // Vérifier le timestamp
+        if kline.open_time <= 0 {
+            return Err(LoadError::Validation(format!(
+                "Bougie {}: timestamp invalide: {}",
+                idx, kline.open_time
+            )));
+        }
+    }
+    
+    Ok(())
+}
 
 /// Charge les données depuis un fichier JSON au format Binance
 ///
@@ -72,12 +167,24 @@ impl std::error::Error for LoadError {}
 /// let series = load_from_json("data/BTCUSDT_1h.json")?;
 /// ```
 pub fn load_from_json<P: AsRef<Path>>(path: P) -> Result<SeriesData, LoadError> {
+    // Vérifier la taille du fichier avant de l'ouvrir
+    let metadata = std::fs::metadata(&path).map_err(LoadError::FileOpen)?;
+    if metadata.len() > MAX_FILE_SIZE {
+        return Err(LoadError::FileTooLarge {
+            size: metadata.len(),
+            max_size: MAX_FILE_SIZE,
+        });
+    }
+    
     // Ouvrir le fichier
     let file = File::open(&path).map_err(LoadError::FileOpen)?;
     let reader = BufReader::new(file);
 
     // Parser le JSON
     let json_data: JsonData = serde_json::from_reader(reader).map_err(LoadError::JsonParse)?;
+    
+    // Valider les données
+    validate_json_data(&json_data)?;
 
     // Extraire le nom de la série depuis le nom du fichier
     let file_name = path.as_ref()
@@ -104,7 +211,10 @@ pub fn load_from_json<P: AsRef<Path>>(path: P) -> Result<SeriesData, LoadError> 
             kline.close,
         );
 
-        timeseries.push(candle);
+        // Ignorer les bougies invalides (déjà validées dans validate_json_data)
+        if let Err(e) = timeseries.push(candle) {
+            eprintln!("⚠️ Bougie invalide ignorée lors du chargement: {}", e);
+        }
     }
 
     // Créer SeriesData avec les métadonnées
