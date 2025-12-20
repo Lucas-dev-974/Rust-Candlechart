@@ -113,6 +113,10 @@ impl TimeSeries {
     /// Utile pour les mises à jour en temps réel où la bougie courante peut être mise à jour
     /// avant sa clôture définitive.
     ///
+    /// Gère correctement les cas où les bougies arrivent dans le désordre (par exemple,
+    /// lorsque plusieurs requêtes HTTP sont en vol simultanément et se terminent dans un ordre différent).
+    /// Dans ce cas, utilise `merge_candles` pour maintenir l'ordre chronologique.
+    ///
     /// # Retourne
     /// - `Ok(true)` si la bougie a été mise à jour (même timestamp)
     /// - `Ok(false)` si une nouvelle bougie a été ajoutée (nouveau timestamp)
@@ -121,17 +125,26 @@ impl TimeSeries {
         Self::validate_candle(&candle)?;
         
         // Vérifier si la dernière bougie a le même timestamp
-        if let Some(last) = self.candles.last_mut() {
+        if let Some(last) = self.candles.last() {
             if last.timestamp == candle.timestamp {
                 // Mettre à jour la bougie existante
-                *last = candle;
-                self.price_cache.invalidate();
-                self.time_cache.invalidate();
-                return Ok(true);
+                if let Some(last_mut) = self.candles.last_mut() {
+                    *last_mut = candle;
+                    self.price_cache.invalidate();
+                    self.time_cache.invalidate();
+                    return Ok(true);
+                }
+            } else if last.timestamp > candle.timestamp {
+                // La bougie arrivée est plus ancienne que la dernière bougie
+                // Cela peut arriver si plusieurs requêtes HTTP sont en vol simultanément
+                // et se terminent dans le désordre. Utiliser merge_candles pour maintenir
+                // l'ordre chronologique.
+                self.merge_candles(vec![candle]);
+                return Ok(false);
             }
         }
         
-        // Ajouter une nouvelle bougie
+        // Ajouter une nouvelle bougie (timestamp > dernière bougie, ou série vide)
         self.push(candle)?;
         Ok(false)
     }
@@ -396,6 +409,65 @@ mod tests {
         // Deuxième appel : doit utiliser le cache
         let range2 = ts.price_range_for_time_range(time_range);
         assert_eq!(range1, range2);
+    }
+
+    #[test]
+    fn test_update_or_append_out_of_order() {
+        // Test pour vérifier que les bougies arrivant dans le désordre sont gérées correctement
+        // Simule le scénario où plusieurs requêtes HTTP sont en vol simultanément
+        let mut ts = TimeSeries::new();
+        
+        // Ajouter une bougie à t=100
+        ts.update_or_append_candle(Candle::new(100, 100.0, 105.0, 99.0, 104.0)).unwrap();
+        assert_eq!(ts.len(), 1);
+        assert_eq!(ts.min_timestamp(), Some(100));
+        assert_eq!(ts.max_timestamp(), Some(100));
+        
+        // Ajouter une bougie à t=160 (plus récente)
+        ts.update_or_append_candle(Candle::new(160, 104.0, 106.0, 103.0, 105.0)).unwrap();
+        assert_eq!(ts.len(), 2);
+        assert_eq!(ts.min_timestamp(), Some(100));
+        assert_eq!(ts.max_timestamp(), Some(160));
+        
+        // Simuler une bougie plus ancienne (t=100) arrivant après (out-of-order)
+        // Cela simule le cas où une requête HTTP plus ancienne se termine après une plus récente
+        ts.update_or_append_candle(Candle::new(100, 100.5, 105.5, 99.5, 104.5)).unwrap();
+        
+        // Vérifier que l'ordre chronologique est maintenu
+        assert_eq!(ts.len(), 2); // Ne doit pas créer de doublon
+        assert_eq!(ts.min_timestamp(), Some(100));
+        assert_eq!(ts.max_timestamp(), Some(160));
+        
+        // Vérifier que la bougie à t=100 a été mise à jour (pas dupliquée)
+        let candles: Vec<i64> = ts.candles.iter().map(|c| c.timestamp).collect();
+        assert_eq!(candles, vec![100, 160]);
+        
+        // Vérifier que la bougie à t=100 a bien été mise à jour avec les nouvelles valeurs
+        let first_candle = ts.candles.first().unwrap();
+        assert_eq!(first_candle.open, 100.5);
+        assert_eq!(first_candle.close, 104.5);
+    }
+
+    #[test]
+    fn test_update_or_append_out_of_order_middle() {
+        // Test avec une bougie arrivant dans le désordre au milieu de la série
+        let mut ts = TimeSeries::new();
+        
+        // Créer une série: t=100, t=200, t=300
+        ts.push(Candle::new(100, 100.0, 105.0, 99.0, 104.0)).unwrap();
+        ts.push(Candle::new(200, 104.0, 106.0, 103.0, 105.0)).unwrap();
+        ts.push(Candle::new(300, 105.0, 107.0, 104.0, 106.0)).unwrap();
+        
+        assert_eq!(ts.len(), 3);
+        assert_eq!(ts.max_timestamp(), Some(300));
+        
+        // Simuler une bougie à t=150 arrivant après t=300 (out-of-order)
+        ts.update_or_append_candle(Candle::new(150, 103.5, 105.5, 102.5, 104.5)).unwrap();
+        
+        // Vérifier que l'ordre chronologique est maintenu
+        assert_eq!(ts.len(), 4);
+        let candles: Vec<i64> = ts.candles.iter().map(|c| c.timestamp).collect();
+        assert_eq!(candles, vec![100, 150, 200, 300]);
     }
 }
 

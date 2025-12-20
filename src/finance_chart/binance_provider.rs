@@ -179,18 +179,23 @@ impl BinanceProvider {
     }
 
     /// Exécute une future async, en utilisant le runtime existant ou en créant un nouveau
+    ///
+    /// Cette fonction gère correctement les appels depuis des contextes sync et async :
+    /// - Si `Handle::try_current()` réussit, on pourrait être dans un contexte sync ou async
+    /// - Comme `Handle::block_on()` panique si appelé depuis un contexte async, on crée
+    ///   toujours un nouveau runtime pour éviter ce risque
+    /// - Cette approche est plus sûre même si légèrement moins efficace
     fn run_async<F, T>(&self, future: F) -> Result<T, String>
     where
         F: std::future::Future<Output = Result<T, String>>,
     {
-        match tokio::runtime::Handle::try_current() {
-            Ok(handle) => handle.block_on(future),
-            Err(_) => {
-                tokio::runtime::Runtime::new()
-                    .map_err(|e| format!("Erreur création runtime: {}", e))?
-                    .block_on(future)
-            }
-        }
+        // Toujours créer un nouveau runtime pour éviter les panics
+        // Handle::block_on() panique si appelé depuis un contexte async, et il n'y a pas
+        // de moyen fiable de détecter si on est dans un contexte async avant d'appeler block_on.
+        // Créer un nouveau runtime est la solution la plus sûre.
+        tokio::runtime::Runtime::new()
+            .map_err(|e| format!("Erreur création runtime: {}", e))?
+            .block_on(future)
     }
 
     /// Récupère les klines depuis l'API Binance
