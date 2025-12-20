@@ -29,6 +29,7 @@ pub mod settings;
 pub mod messages;
 pub mod realtime;
 pub mod binance_provider;
+pub mod provider_config;
 
 pub use state::ChartState;
 pub use widget::chart;
@@ -41,4 +42,5 @@ pub use settings::{ChartStyle, SettingsState};
 pub use messages::{ChartMessage, YAxisMessage, XAxisMessage, ToolsPanelMessage, SeriesPanelMessage};
 pub use realtime::UpdateResult;
 pub use binance_provider::BinanceProvider;
+pub use provider_config::{ProviderConfigManager, ProviderType, ProviderConfig};
 

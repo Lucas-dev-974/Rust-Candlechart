@@ -37,6 +37,8 @@ pub struct BinanceProvider {
     client: reqwest::Client,
     /// URL de base de l'API (par défaut: API publique Binance)
     base_url: String,
+    /// Token API optionnel pour l'authentification
+    api_token: Option<String>,
 }
 
 impl BinanceProvider {
@@ -52,14 +54,47 @@ impl BinanceProvider {
     /// # Arguments
     /// * `timeout` - Timeout pour les requêtes HTTP
     pub fn with_timeout(timeout: Duration) -> Self {
-        let client = reqwest::Client::builder()
-            .timeout(timeout)
+        Self::with_config(timeout, None)
+    }
+
+    /// Crée un nouveau provider avec un token API
+    ///
+    /// # Arguments
+    /// * `api_token` - Token API pour l'authentification (optionnel)
+    pub fn with_token(api_token: Option<String>) -> Self {
+        Self::with_config(Duration::from_secs(DEFAULT_TIMEOUT_SECS), api_token)
+    }
+
+    /// Crée un nouveau provider avec une configuration complète
+    ///
+    /// # Arguments
+    /// * `timeout` - Timeout pour les requêtes HTTP
+    /// * `api_token` - Token API pour l'authentification (optionnel)
+    pub fn with_config(timeout: Duration, api_token: Option<String>) -> Self {
+        let mut client_builder = reqwest::Client::builder()
+            .timeout(timeout);
+
+        // Ajouter le header X-MBX-APIKEY si un token est fourni
+        if let Some(ref token) = api_token {
+            if let Ok(header_value) = reqwest::header::HeaderValue::from_str(token) {
+                client_builder = client_builder.default_headers({
+                    let mut headers = reqwest::header::HeaderMap::new();
+                    headers.insert("X-MBX-APIKEY", header_value);
+                    headers
+                });
+            } else {
+                eprintln!("⚠️ Token API invalide, utilisation sans authentification");
+            }
+        }
+
+        let client = client_builder
             .build()
             .expect("Impossible de créer le client HTTP");
 
         Self {
             client,
             base_url: BINANCE_API_BASE.to_string(),
+            api_token,
         }
     }
 

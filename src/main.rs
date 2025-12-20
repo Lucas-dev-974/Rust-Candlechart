@@ -1,8 +1,9 @@
 mod finance_chart;
 
-use iced::widget::{button, column, container, row, text, scrollable, Space, checkbox};
+use iced::widget::{button, column, container, row, text, scrollable, Space, checkbox, text_input};
 use iced::{Element, Length, Task, Theme, Color, Size, window, Subscription};
 use std::time::Duration;
+use std::collections::HashMap;
 use finance_chart::{
     chart, load_all_from_directory, ChartState, x_axis, y_axis,
     X_AXIS_HEIGHT, Y_AXIS_WIDTH, ToolsState, tools_panel, TOOLS_PANEL_WIDTH,
@@ -13,6 +14,7 @@ use finance_chart::{
     tools_canvas::Action as HistoryAction,
     BinanceProvider, UpdateResult,
     core::{SeriesId, Candle},
+    ProviderConfigManager, ProviderType,
 };
 
 /// Chemin vers le fichier de données
@@ -65,6 +67,7 @@ fn main() -> iced::Result {
 enum WindowType {
     Main,
     Settings,
+    ProviderConfig,
 }
 
 /// Gestionnaire de fenêtres simplifié
@@ -72,6 +75,7 @@ enum WindowType {
 struct WindowManager {
     main_window_id: Option<window::Id>,
     settings_window_id: Option<window::Id>,
+    provider_config_window_id: Option<window::Id>,
 }
 
 impl WindowManager {
@@ -79,6 +83,7 @@ impl WindowManager {
         Self {
             main_window_id: Some(main_id),
             settings_window_id: None,
+            provider_config_window_id: None,
         }
     }
     
@@ -86,6 +91,7 @@ impl WindowManager {
         match window_type {
             WindowType::Main => self.main_window_id,
             WindowType::Settings => self.settings_window_id,
+            WindowType::ProviderConfig => self.provider_config_window_id,
         }
     }
     
@@ -93,6 +99,7 @@ impl WindowManager {
         match window_type {
             WindowType::Main => self.main_window_id = Some(id),
             WindowType::Settings => self.settings_window_id = Some(id),
+            WindowType::ProviderConfig => self.provider_config_window_id = Some(id),
         }
     }
     
@@ -100,6 +107,7 @@ impl WindowManager {
         match window_type {
             WindowType::Main => self.main_window_id = None,
             WindowType::Settings => self.settings_window_id = None,
+            WindowType::ProviderConfig => self.provider_config_window_id = None,
         }
     }
     
@@ -112,6 +120,8 @@ impl WindowManager {
             Some(WindowType::Main)
         } else if self.settings_window_id == Some(id) {
             Some(WindowType::Settings)
+        } else if self.provider_config_window_id == Some(id) {
+            Some(WindowType::ProviderConfig)
         } else {
             None
         }
@@ -136,6 +146,12 @@ struct ChartApp {
     // Mode temps réel
     binance_provider: BinanceProvider,
     realtime_enabled: bool,
+    
+    // Configuration des providers
+    provider_config: ProviderConfigManager,
+    
+    // État temporaire pour la fenêtre de configuration des providers
+    editing_provider_token: HashMap<ProviderType, String>,
     
     // Compteur de version pour forcer le re-render du canvas
     render_version: u64,
@@ -174,6 +190,14 @@ enum Message {
     RealtimeUpdate,
     RealtimeUpdateComplete(Vec<(SeriesId, String, Result<Option<Candle>, String>)>),
     CompleteMissingData,
+    
+    // === Messages de configuration des providers ===
+    OpenProviderConfig,
+    ProviderConfigWindowOpened(window::Id),
+    SelectProvider(ProviderType),
+    UpdateProviderToken(ProviderType, String),
+    ApplyProviderConfig,
+    CancelProviderConfig,
 }
 
 impl ChartApp {
@@ -247,8 +271,24 @@ impl ChartApp {
             Err(_) => ChartStyle::default(),
         };
 
-        // Créer le provider Binance pour le mode temps réel
-        let binance_provider = BinanceProvider::new();
+        // Charger la configuration des providers
+        let provider_config = match ProviderConfigManager::load_from_file("provider_config.json") {
+            Ok(config) => {
+                println!("✅ Configuration des providers chargée depuis provider_config.json");
+                config
+            }
+            Err(_) => {
+                println!("ℹ️ Configuration des providers par défaut utilisée");
+                ProviderConfigManager::new()
+            }
+        };
+
+        // Créer le provider Binance avec le token configuré
+        let binance_provider = if let Some(config) = provider_config.active_config() {
+            BinanceProvider::with_token(config.api_token.clone())
+        } else {
+            BinanceProvider::new()
+        };
         
         // Compléter les données manquantes depuis Binance
         let complete_task = Task::perform(
@@ -272,6 +312,8 @@ impl ChartApp {
                 tools_state, 
                 settings_state: SettingsState::default(),
                 chart_style,
+                provider_config,
+                editing_provider_token: std::collections::HashMap::new(),
                 windows: WindowManager::new(main_id),
                 editing_style: None,
                 editing_color_index: None,
@@ -289,6 +331,7 @@ impl ChartApp {
     fn title(&self, window_id: window::Id) -> String {
         match self.windows.get_window_type(window_id) {
             Some(WindowType::Settings) => String::from("Settings - Style Chart"),
+            Some(WindowType::ProviderConfig) => String::from("Provider Configuration"),
             Some(WindowType::Main) | None => {
                 // Afficher le symbole de la série active, ou un titre par défaut
                 if let Some(active_series) = self.chart_state.series_manager.active_series().next() {
@@ -389,14 +432,109 @@ impl ChartApp {
                         self.editing_style = None;
                         self.editing_color_index = None;
                     }
+                    Some(WindowType::ProviderConfig) => {
+                        self.windows.remove_id(WindowType::ProviderConfig);
+                        self.editing_provider_token.clear();
+                    }
                     Some(WindowType::Main) => {
                         self.windows.remove_id(WindowType::Main);
-                        // Fermer la fenêtre settings si elle est ouverte
+                        // Fermer les autres fenêtres si elles sont ouvertes
                         if let Some(settings_id) = self.windows.get_id(WindowType::Settings) {
                             return window::close(settings_id);
                         }
+                        if let Some(provider_id) = self.windows.get_id(WindowType::ProviderConfig) {
+                            return window::close(provider_id);
+                        }
                     }
                     None => {}
+                }
+                Task::none()
+            }
+            
+            // === Gestion de la configuration des providers ===
+            Message::OpenProviderConfig => {
+                if self.windows.is_open(WindowType::ProviderConfig) {
+                    return Task::none();
+                }
+                
+                // Initialiser les tokens en cours d'édition
+                for provider_type in ProviderType::all() {
+                    if let Some(config) = self.provider_config.providers.get(&provider_type) {
+                        self.editing_provider_token.insert(
+                            provider_type,
+                            config.api_token.clone().unwrap_or_default(),
+                        );
+                    } else {
+                        self.editing_provider_token.insert(provider_type, String::new());
+                    }
+                }
+                
+                let (id, task) = window::open(window::Settings {
+                    size: Size::new(600.0, 500.0),
+                    resizable: false,
+                    ..Default::default()
+                });
+                self.windows.set_id(WindowType::ProviderConfig, id);
+                task.map(Message::ProviderConfigWindowOpened)
+            }
+            
+            Message::ProviderConfigWindowOpened(_id) => Task::none(),
+            
+            Message::UpdateProviderToken(provider_type, token) => {
+                self.editing_provider_token.insert(provider_type, token);
+                Task::none()
+            }
+            
+            Message::ApplyProviderConfig => {
+                // Appliquer les tokens modifiés
+                for (provider_type, token) in &self.editing_provider_token {
+                    let token_opt = if token.is_empty() {
+                        None
+                    } else {
+                        Some(token.clone())
+                    };
+                    self.provider_config.set_provider_token(*provider_type, token_opt);
+                }
+                
+                // Sauvegarder la configuration
+                if let Err(e) = self.provider_config.save_to_file("provider_config.json") {
+                    eprintln!("⚠️ Erreur sauvegarde configuration providers: {}", e);
+                } else {
+                    println!("✅ Configuration des providers sauvegardée dans provider_config.json");
+                }
+                
+                // Recréer le provider avec la nouvelle configuration
+                if let Some(config) = self.provider_config.active_config() {
+                    self.binance_provider = BinanceProvider::with_token(config.api_token.clone());
+                    println!("✅ Provider recréé avec la nouvelle configuration");
+                }
+                
+                // Fermer la fenêtre
+                if let Some(id) = self.windows.get_id(WindowType::ProviderConfig) {
+                    self.windows.remove_id(WindowType::ProviderConfig);
+                    self.editing_provider_token.clear();
+                    return window::close(id);
+                }
+                Task::none()
+            }
+            
+            Message::SelectProvider(provider_type) => {
+                self.provider_config.set_active_provider(provider_type);
+                
+                // Recréer le provider avec la configuration du nouveau provider actif
+                if let Some(config) = self.provider_config.active_config() {
+                    self.binance_provider = BinanceProvider::with_token(config.api_token.clone());
+                    println!("✅ Provider changé et recréé");
+                }
+                
+                Task::none()
+            }
+            
+            Message::CancelProviderConfig => {
+                if let Some(id) = self.windows.get_id(WindowType::ProviderConfig) {
+                    self.windows.remove_id(WindowType::ProviderConfig);
+                    self.editing_provider_token.clear();
+                    return window::close(id);
                 }
                 Task::none()
             }
@@ -900,6 +1038,7 @@ impl ChartApp {
     fn view(&self, window_id: window::Id) -> Element<'_, Message> {
         match self.windows.get_window_type(window_id) {
             Some(WindowType::Settings) => self.view_settings(),
+            Some(WindowType::ProviderConfig) => self.view_provider_config(),
             Some(WindowType::Main) | None => self.view_main(),
         }
     }
@@ -912,13 +1051,27 @@ impl ChartApp {
             .map(|series| series.symbol.clone())
             .unwrap_or_else(|| String::from("Chart Candlestick"));
         
-        // Header avec titre et select box de séries
+        // Header avec titre, bouton de configuration et select box de séries
         let header = container(
             row![
                 text(title_text)
                     .size(24)
                     .color(Color::WHITE),
                 Space::new().width(Length::Fill),
+                button("⚙️ Provider")
+                    .on_press(Message::OpenProviderConfig)
+                    .style(|_theme, status| {
+                        let bg_color = match status {
+                            button::Status::Hovered => Color::from_rgb(0.2, 0.2, 0.25),
+                            _ => Color::from_rgb(0.15, 0.15, 0.18),
+                        };
+                        button::Style {
+                            background: Some(iced::Background::Color(bg_color)),
+                            text_color: Color::WHITE,
+                            ..Default::default()
+                        }
+                    }),
+                Space::new().width(Length::Fixed(10.0)),
                 series_select_box(&self.chart_state.series_manager).map(Message::SeriesPanel)
             ]
             .align_y(iced::Alignment::Center)
@@ -1150,6 +1303,155 @@ impl ChartApp {
             .height(Length::Fill)
             .style(|_theme| container::Style {
                 background: Some(iced::Background::Color(Color::from_rgb(0.12, 0.12, 0.15))),
+                ..Default::default()
+            })
+            .into()
+    }
+
+    fn view_provider_config(&self) -> Element<'_, Message> {
+        let title = text("Configuration des Providers")
+            .size(20)
+            .color(Color::WHITE);
+
+        let mut provider_list = column![].spacing(15);
+
+        for provider_type in ProviderType::all() {
+            let is_active = self.provider_config.active_provider == provider_type;
+            let provider_name = text(provider_type.display_name())
+                .size(16)
+                .color(if is_active { Color::from_rgb(0.4, 0.8, 1.0) } else { Color::WHITE });
+            
+            let description = text(provider_type.description())
+                .size(12)
+                .color(Color::from_rgb(0.7, 0.7, 0.7));
+
+            // Token input
+            let current_token = self.editing_provider_token
+                .get(&provider_type)
+                .cloned()
+                .unwrap_or_default();
+            
+            let token_input = text_input("API Token (optionnel)", &current_token)
+                .on_input(move |token| Message::UpdateProviderToken(provider_type, token))
+                .padding(8);
+
+            // Bouton de sélection
+            let select_btn = if is_active {
+                button(text("✓ Actif").size(12))
+                    .style(|_theme, _status| button::Style {
+                        background: Some(iced::Background::Color(Color::from_rgb(0.2, 0.5, 0.2))),
+                        text_color: Color::WHITE,
+                        ..Default::default()
+                    })
+            } else {
+                button(text("Sélectionner").size(12))
+                    .on_press(Message::SelectProvider(provider_type))
+                    .style(|_theme, status| {
+                        let bg_color = match status {
+                            button::Status::Hovered => Color::from_rgb(0.2, 0.2, 0.25),
+                            _ => Color::from_rgb(0.15, 0.15, 0.18),
+                        };
+                        button::Style {
+                            background: Some(iced::Background::Color(bg_color)),
+                            text_color: Color::WHITE,
+                            ..Default::default()
+                        }
+                    })
+            };
+
+            let provider_card = container(
+                column![
+                    row![
+                        provider_name,
+                        Space::new().width(Length::Fill),
+                        select_btn
+                    ]
+                    .align_y(iced::Alignment::Center)
+                    .spacing(10),
+                    description,
+                    Space::new().height(Length::Fixed(5.0)),
+                    token_input,
+                ]
+                .spacing(8)
+                .padding(15)
+            )
+            .style(move |_theme| container::Style {
+                background: Some(iced::Background::Color(Color::from_rgb(0.1, 0.1, 0.12))),
+                border: iced::Border {
+                    color: if is_active {
+                        Color::from_rgb(0.4, 0.8, 1.0)
+                    } else {
+                        Color::from_rgb(0.2, 0.2, 0.25)
+                    },
+                    width: if is_active { 2.0 } else { 1.0 },
+                    radius: 8.0.into(),
+                },
+                ..Default::default()
+            });
+
+            provider_list = provider_list.push(provider_card);
+        }
+
+        let apply_btn = button(
+            text("Appliquer").size(14)
+        )
+        .on_press(Message::ApplyProviderConfig)
+        .padding([8, 20])
+        .style(|_theme, _status| button::Style {
+            background: Some(iced::Background::Color(Color::from_rgb(0.2, 0.5, 0.2))),
+            text_color: Color::WHITE,
+            border: iced::Border {
+                radius: 4.0.into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        let cancel_btn = button(
+            text("Annuler").size(14)
+        )
+        .on_press(Message::CancelProviderConfig)
+        .padding([8, 20])
+        .style(|_theme, status| {
+            let bg_color = match status {
+                button::Status::Hovered => Color::from_rgb(0.3, 0.2, 0.2),
+                _ => Color::from_rgb(0.25, 0.15, 0.15),
+            };
+            button::Style {
+                background: Some(iced::Background::Color(bg_color)),
+                text_color: Color::WHITE,
+                border: iced::Border {
+                    radius: 4.0.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }
+        });
+
+        let content = column![
+            title,
+            Space::new().height(Length::Fixed(20.0)),
+            scrollable(provider_list)
+                .width(Length::Fill)
+                .height(Length::Fill),
+            Space::new().height(Length::Fixed(15.0)),
+            row![
+                cancel_btn,
+                Space::new().width(Length::Fill),
+                apply_btn
+            ]
+            .spacing(10)
+        ]
+        .spacing(15)
+        .padding(20)
+        .width(Length::Fill)
+        .height(Length::Fill);
+
+        container(content)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(|_theme| container::Style {
+                background: Some(iced::Background::Color(Color::from_rgb(0.08, 0.08, 0.10))),
                 ..Default::default()
             })
             .into()
