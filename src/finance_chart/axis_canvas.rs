@@ -3,8 +3,8 @@
 //! Architecture Elm : émet des messages pour les mutations d'état,
 //! reçoit des références immuables pour le rendu.
 
-use iced::widget::canvas::{Canvas, Frame, Geometry, Path, Program, Text, Action};
-use iced::{Color, Element, Event, Length, Point, Rectangle, Size};
+use iced::widget::canvas::{Canvas, Frame, Geometry, Program, Text, Action};
+use iced::{Color, Element, Event, Length, Point, Rectangle};
 use iced::mouse;
 
 use super::state::ChartState;
@@ -116,47 +116,6 @@ impl<'a> Program<YAxisMessage> for YAxisProgram<'a> {
             }
 
             price += price_step;
-        }
-
-        // === Dessiner le rectangle du prix courant ===
-        if let Some(last_candle) = self.chart_state.last_candle() {
-            let current_price = last_candle.close;
-            let y = viewport.price_scale().price_to_y(current_price);
-            
-            // Ne dessiner que si visible
-            if y >= 0.0 && y <= viewport.height() {
-                // Couleur selon si le prix est haussier ou baissier
-                let is_bullish = last_candle.close >= last_candle.open;
-                let bg_color = if is_bullish {
-                    Color::from_rgb(0.0, 0.5, 0.0) // Vert foncé
-                } else {
-                    Color::from_rgb(0.5, 0.0, 0.0) // Rouge foncé
-                };
-                
-                // Dimensions du rectangle
-                let rect_height = 16.0;
-                let rect_width = bounds.width - 4.0;
-                let rect_x = 2.0;
-                let rect_y = y - rect_height / 2.0;
-                
-                // Dessiner le rectangle de fond
-                let rect = Path::rectangle(
-                    Point::new(rect_x, rect_y),
-                    Size::new(rect_width, rect_height),
-                );
-                frame.fill(&rect, bg_color);
-                
-                // Formater et afficher le prix
-                let label = format!("{:.2}", current_price);
-                let text = Text {
-                    content: label,
-                    position: Point::new(5.0, y - 5.0),
-                    color: Color::WHITE,
-                    size: iced::Pixels(style.text_size),
-                    ..Text::default()
-                };
-                frame.fill_text(text);
-            }
         }
 
         vec![frame.into_geometry()]
