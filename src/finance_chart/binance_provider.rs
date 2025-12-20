@@ -12,7 +12,7 @@
 //! ```
 
 use super::core::{Candle, SeriesId};
-use super::realtime::RealtimeDataProvider;
+use super::realtime::{RealtimeDataProvider, ProviderError};
 use std::time::Duration;
 
 /// URL de base de l'API Binance
@@ -101,7 +101,7 @@ impl BinanceProvider {
     /// Récupère la dernière bougie de manière asynchrone (pour Iced Tasks)
     ///
     /// Cette méthode permet de faire des requêtes en parallèle sans bloquer le thread principal.
-    pub async fn get_latest_candle_async(&self, series_id: &SeriesId) -> Result<Option<Candle>, String> {
+    pub async fn get_latest_candle_async(&self, series_id: &SeriesId) -> Result<Option<Candle>, ProviderError> {
         let (symbol, interval) = self.parse_series_id(series_id)?;
         let candles = self.fetch_klines(&symbol, &interval, None, None, Some(1)).await?;
         Ok(candles.into_iter().last())
@@ -110,7 +110,7 @@ impl BinanceProvider {
     /// Récupère les nouvelles bougies depuis un timestamp de manière asynchrone (pour Iced Tasks)
     ///
     /// Cette méthode permet de faire des requêtes en parallèle sans bloquer le thread principal.
-    pub async fn fetch_new_candles_async(&self, series_id: &SeriesId, since_timestamp: i64) -> Result<Vec<Candle>, String> {
+    pub async fn fetch_new_candles_async(&self, series_id: &SeriesId, since_timestamp: i64) -> Result<Vec<Candle>, ProviderError> {
         let (symbol, interval) = self.parse_series_id(series_id)?;
         let start_time_ms = since_timestamp * 1000;
         self.fetch_klines(&symbol, &interval, Some(start_time_ms), None, Some(1000)).await
@@ -119,7 +119,7 @@ impl BinanceProvider {
     /// Récupère toutes les bougies de manière asynchrone (pour Iced Tasks)
     ///
     /// Cette méthode permet de faire des requêtes en parallèle sans bloquer le thread principal.
-    pub async fn fetch_all_candles_async(&self, series_id: &SeriesId) -> Result<Vec<Candle>, String> {
+    pub async fn fetch_all_candles_async(&self, series_id: &SeriesId) -> Result<Vec<Candle>, ProviderError> {
         self.fetch_new_candles_async(series_id, 0).await
     }
 
@@ -127,13 +127,13 @@ impl BinanceProvider {
     /// Extrait le symbole et l'intervalle depuis un SeriesId
     ///
     /// Format attendu: "SYMBOL_INTERVAL" (ex: "BTCUSDT_1h")
-    fn parse_series_id(&self, series_id: &SeriesId) -> Result<(String, String), String> {
+    fn parse_series_id(&self, series_id: &SeriesId) -> Result<(String, String), ProviderError> {
         let parts: Vec<&str> = series_id.name.split('_').collect();
         if parts.len() < 2 {
-            return Err(format!(
+            return Err(ProviderError::InvalidSeriesId(format!(
                 "Format de SeriesId invalide: {}. Attendu: SYMBOL_INTERVAL (ex: BTCUSDT_1h)",
                 series_id.name
-            ));
+            )));
         }
 
         let symbol = parts[0].to_uppercase();
@@ -146,27 +146,27 @@ impl BinanceProvider {
     ///
     /// L'API Binance retourne les klines sous forme de tableaux :
     /// [open_time (ms), open, high, low, close, volume, close_time, ...]
-    fn parse_kline_array(&self, arr: &[serde_json::Value]) -> Result<Candle, String> {
+    fn parse_kline_array(&self, arr: &[serde_json::Value]) -> Result<Candle, ProviderError> {
         if arr.len() < 6 {
-            return Err(format!(
+            return Err(ProviderError::Parse(format!(
                 "Tableau kline incomplet: {} éléments (attendu: au moins 6)",
                 arr.len()
-            ));
+            )));
         }
 
         // Helper pour parser un prix depuis un Value
-        let parse_price = |idx: usize, field: &str| -> Result<f64, String> {
+        let parse_price = |idx: usize, field: &str| -> Result<f64, ProviderError> {
             arr[idx]
                 .as_str()
-                .ok_or_else(|| format!("{} invalide (string)", field))?
+                .ok_or_else(|| ProviderError::Parse(format!("{} invalide (string)", field)))?
                 .parse::<f64>()
-                .map_err(|e| format!("Erreur parsing {}: {}", field, e))
+                .map_err(|e| ProviderError::Parse(format!("Erreur parsing {}: {}", field, e)))
         };
 
         // Extraire les valeurs
         let open_time_ms = arr[0]
             .as_i64()
-            .ok_or_else(|| "open_time invalide".to_string())?;
+            .ok_or_else(|| ProviderError::Parse("open_time invalide".to_string()))?;
         let open = parse_price(1, "open")?;
         let high = parse_price(2, "high")?;
         let low = parse_price(3, "low")?;
@@ -185,16 +185,16 @@ impl BinanceProvider {
     /// - Comme `Handle::block_on()` panique si appelé depuis un contexte async, on crée
     ///   toujours un nouveau runtime pour éviter ce risque
     /// - Cette approche est plus sûre même si légèrement moins efficace
-    fn run_async<F, T>(&self, future: F) -> Result<T, String>
+    fn run_async<F, T>(&self, future: F) -> Result<T, ProviderError>
     where
-        F: std::future::Future<Output = Result<T, String>>,
+        F: std::future::Future<Output = Result<T, ProviderError>>,
     {
         // Toujours créer un nouveau runtime pour éviter les panics
         // Handle::block_on() panique si appelé depuis un contexte async, et il n'y a pas
         // de moyen fiable de détecter si on est dans un contexte async avant d'appeler block_on.
         // Créer un nouveau runtime est la solution la plus sûre.
         tokio::runtime::Runtime::new()
-            .map_err(|e| format!("Erreur création runtime: {}", e))?
+            .map_err(|e| ProviderError::Unknown(format!("Erreur création runtime: {}", e)))?
             .block_on(future)
     }
 
@@ -213,7 +213,7 @@ impl BinanceProvider {
         start_time: Option<i64>,
         end_time: Option<i64>,
         limit: Option<usize>,
-    ) -> Result<Vec<Candle>, String> {
+    ) -> Result<Vec<Candle>, ProviderError> {
         // Construire l'URL de manière optimisée
         let mut url = format!("{}/klines?symbol={}&interval={}", self.base_url, symbol, interval);
         
@@ -239,25 +239,25 @@ impl BinanceProvider {
             .get(&url)
             .send()
             .await
-            .map_err(|e| format!("Erreur HTTP: {}", e))?;
+            .map_err(ProviderError::from)?;
 
         if !response.status().is_success() {
-            let status = response.status();
+            let status = response.status().as_u16();
             let error_text = response
                 .text()
                 .await
                 .unwrap_or_else(|_| "Erreur inconnue".to_string());
-            return Err(format!(
-                "Erreur API Binance ({}): {}",
-                status, error_text
-            ));
+            return Err(ProviderError::Api {
+                status: Some(status),
+                message: error_text,
+            });
         }
 
         // Parser la réponse JSON
         let json: Vec<Vec<serde_json::Value>> = response
             .json()
             .await
-            .map_err(|e| format!("Erreur parsing JSON: {}", e))?;
+            .map_err(ProviderError::from)?;
 
         // Convertir en Candles
         let mut candles = Vec::new();
@@ -291,21 +291,25 @@ impl std::fmt::Debug for BinanceProvider {
 
 impl RealtimeDataProvider for BinanceProvider {
     fn fetch_latest_candle(&self, series_id: &SeriesId) -> Result<Option<Candle>, String> {
-        let (symbol, interval) = self.parse_series_id(series_id)?;
+        let (symbol, interval) = self.parse_series_id(series_id)
+            .map_err(|e| e.to_string())?;
         
         self.run_async(async {
             let candles = self.fetch_klines(&symbol, &interval, None, None, Some(1)).await?;
             Ok(candles.into_iter().last())
         })
+        .map_err(|e| e.to_string())
     }
 
     fn fetch_new_candles(&self, series_id: &SeriesId, since_timestamp: i64) -> Result<Vec<Candle>, String> {
-        let (symbol, interval) = self.parse_series_id(series_id)?;
+        let (symbol, interval) = self.parse_series_id(series_id)
+            .map_err(|e| e.to_string())?;
         let start_time_ms = since_timestamp * 1000;
         
         self.run_async(async {
             self.fetch_klines(&symbol, &interval, Some(start_time_ms), None, Some(1000)).await
         })
+        .map_err(|e| e.to_string())
     }
 }
 

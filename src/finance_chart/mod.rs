@@ -42,5 +42,5 @@ pub use settings::{ChartStyle, SettingsState};
 pub use messages::{ChartMessage, YAxisMessage, XAxisMessage, ToolsPanelMessage, SeriesPanelMessage};
 pub use realtime::UpdateResult;
 pub use binance_provider::BinanceProvider;
-pub use provider_config::{ProviderConfigManager, ProviderType, ProviderConfig};
+pub use provider_config::{ProviderConfigManager, ProviderType};
 

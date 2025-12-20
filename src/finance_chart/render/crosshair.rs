@@ -5,6 +5,7 @@ use iced::{Color, Point, Size};
 
 use crate::finance_chart::viewport::Viewport;
 use crate::finance_chart::render::grid::format_time;
+use crate::finance_chart::render::utils::format_price_compact;
 
 /// Style du crosshair
 pub struct CrosshairStyle {
@@ -63,26 +64,13 @@ pub fn render_crosshair(
 
     // === Label du prix (sur le bord droit) ===
     let price = viewport.price_scale().y_to_price(mouse_position.y);
-    let price_label = format_price(price);
+    let price_label = format_price_compact(price);
     draw_price_label(frame, &style, mouse_position.y, width, &price_label);
 
     // === Label du temps (sur le bord bas) ===
     let timestamp = viewport.time_scale().x_to_time(mouse_position.x);
     let time_label = format_time(timestamp, 3600); // Format avec précision horaire
     draw_time_label(frame, &style, mouse_position.x, height, &time_label);
-}
-
-/// Formate un prix pour l'affichage
-fn format_price(price: f64) -> String {
-    if price >= 10000.0 {
-        format!("{:.0}", price)
-    } else if price >= 100.0 {
-        format!("{:.1}", price)
-    } else if price >= 1.0 {
-        format!("{:.2}", price)
-    } else {
-        format!("{:.4}", price)
-    }
 }
 
 /// Dessine le label du prix sur le bord droit

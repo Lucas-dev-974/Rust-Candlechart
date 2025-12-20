@@ -3,15 +3,11 @@ name = "CandleChart"
 version = "0.1.0"
 edition = "2021"
 authors = ["Your Name <your.email@example.com>"]
-description = "Bibliothèque de visualisation de graphiques financiers (candlesticks) pour Iced"
+description = "Application de visualisation de graphiques financiers (candlesticks) pour Iced"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/yourusername/CandleChart"
 keywords = ["finance", "chart", "candlestick", "iced", "trading"]
 categories = ["rendering", "visualization"]
-
-[lib]
-name = "candlechart"
-path = "src/lib.rs"
 
 [[bin]]
 name = "CandleChart"
@@ -28,7 +24,3 @@ futures = "0.3"
 
 [features]
 default = []
-
-[[example]]
-name = "binance_example"
-path = "examples/binance_example.rs"

@@ -5,6 +5,7 @@ pub mod grid;
 pub mod horizontal_line;
 pub mod rectangles;
 pub mod tooltip;
+pub mod utils;
 
 pub use candlestick::render_candlesticks;
 pub use crosshair::render_crosshair;

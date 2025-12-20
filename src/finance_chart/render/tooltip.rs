@@ -144,15 +144,11 @@ pub fn render_tooltip(
     draw_text_line(frame, &change_str, x, y, change_color, style.text_size);
 }
 
+use super::utils::format_price_detailed;
+
 /// Formate un prix pour l'affichage
 fn format_price(price: f64) -> String {
-    if price >= 100.0 {
-        format!("{:.2}", price)
-    } else if price >= 1.0 {
-        format!("{:.4}", price)
-    } else {
-        format!("{:.6}", price)
-    }
+    format_price_detailed(price)
 }
 
 /// Dessine une ligne de texte

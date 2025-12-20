@@ -5,6 +5,7 @@ use iced::{Color, Point, Size};
 
 use crate::finance_chart::tools_canvas::DrawnHorizontalLine;
 use crate::finance_chart::viewport::Viewport;
+use crate::finance_chart::render::utils::format_price_badge;
 
 /// Dessine une ligne horizontale
 pub fn draw_horizontal_line(
@@ -100,7 +101,7 @@ fn draw_price_badge(frame: &mut Frame, y: f32, width: f32, price: f64, color: Co
     frame.fill(&bg_rect, color);
 
     // Texte du prix
-    let price_str = format_price(price);
+    let price_str = format_price_badge(price);
     let text = Text {
         content: price_str,
         position: Point::new(badge_x + 4.0, badge_y + 2.0),
@@ -109,17 +110,6 @@ fn draw_price_badge(frame: &mut Frame, y: f32, width: f32, price: f64, color: Co
         ..Text::default()
     };
     frame.fill_text(text);
-}
-
-/// Formate un prix pour l'affichage
-fn format_price(price: f64) -> String {
-    if price >= 10000.0 {
-        format!("{:.0}", price)
-    } else if price >= 100.0 {
-        format!("{:.1}", price)
-    } else {
-        format!("{:.2}", price)
-    }
 }
 
 /// Dessine l'aperçu d'une ligne horizontale en cours de création

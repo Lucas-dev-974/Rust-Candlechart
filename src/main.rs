@@ -690,11 +690,15 @@ impl ChartApp {
                                 };
                                 
                                 println!("  📥 {}: Récupération depuis le timestamp {}", series_name_clone, since_ts);
-                                provider.fetch_new_candles_async(&series_id_clone, since_ts).await
+                                provider.fetch_new_candles_async(&series_id_clone, since_ts)
+                                    .await
+                                    .map_err(|e| e.to_string())
                             } else {
                                 // Aucune donnée, synchroniser complètement
                                 println!("  📥 {}: Aucune donnée, synchronisation complète", series_name_clone);
-                                provider.fetch_all_candles_async(&series_id_clone).await
+                                provider.fetch_all_candles_async(&series_id_clone)
+                                    .await
+                                    .map_err(|e| e.to_string())
                             };
                             
                             (series_id, series_name_clone, result)
@@ -790,7 +794,9 @@ impl ChartApp {
                         let series_name = series_name.clone();
                         
                         async move {
-                            let result = provider.get_latest_candle_async(&series_id).await;
+                            let result = provider.get_latest_candle_async(&series_id)
+                                .await
+                                .map_err(|e| e.to_string());
                             (series_id, series_name, result)
                         }
                     })

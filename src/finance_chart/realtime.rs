@@ -53,7 +53,10 @@
 //! }
 //! ```
 
+pub mod error;
+
 use super::core::{Candle, SeriesId};
+pub use error::ProviderError;
 
 /// Résultat d'une mise à jour en temps réel
 #[derive(Debug, Clone, PartialEq, Eq)]
