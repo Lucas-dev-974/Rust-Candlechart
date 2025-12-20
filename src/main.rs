@@ -1145,9 +1145,15 @@ impl ChartApp {
         .width(Length::Fill)
         .height(Length::Fill);
 
-        // Ligne du bas : espace vide (sous tools) + Axe X + bouton settings (coin)
+        // Ligne du bas : espace comblé (sous tools) + Axe X + bouton settings (coin)
         let x_axis_row = row![
-            container(text("")).width(Length::Fixed(TOOLS_PANEL_WIDTH)),
+            container(Space::new())
+                .width(Length::Fixed(TOOLS_PANEL_WIDTH))
+                .height(Length::Fill)
+                .style(|_theme| container::Style {
+                    background: Some(iced::Background::Color(Color::from_rgb(0.08, 0.08, 0.10))),
+                    ..Default::default()
+                }),
             x_axis(&self.chart_state).map(Message::XAxis),
             corner_settings_button()
         ]
