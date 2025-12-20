@@ -3,8 +3,8 @@
 //! Architecture Elm : émet des messages pour les mutations d'état,
 //! reçoit des références immuables pour le rendu.
 
-use iced::widget::canvas::{Canvas, Frame, Geometry, Program, Text, Action};
-use iced::{Color, Element, Event, Length, Point, Rectangle};
+use iced::widget::canvas::{Canvas, Frame, Geometry, Program, Text, Action, Path};
+use iced::{Color, Element, Event, Length, Point, Rectangle, Size};
 use iced::mouse;
 
 use super::state::ChartState;
@@ -16,6 +16,57 @@ pub const Y_AXIS_WIDTH: f32 = 43.0;
 
 /// Hauteur du canvas X (axe du temps)
 pub const X_AXIS_HEIGHT: f32 = 30.0;
+
+/// Convertit un intervalle (ex: "1h", "15m") en secondes
+fn interval_to_seconds(interval: &str) -> i64 {
+    match interval {
+        "1m" => 60,
+        "3m" => 180,
+        "5m" => 300,
+        "15m" => 900,
+        "30m" => 1800,
+        "1h" => 3600,
+        "2h" => 7200,
+        "4h" => 14400,
+        "6h" => 21600,
+        "8h" => 28800,
+        "12h" => 43200,
+        "1d" => 86400,
+        "3d" => 259200,
+        "1w" => 604800,
+        "1M" => 2592000, // Approximation (30 jours)
+        _ => 3600, // Défaut: 1h
+    }
+}
+
+/// Calcule le temps restant avant la clôture de la bougie
+fn calculate_time_remaining(candle_timestamp: i64, interval: &str) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    
+    let interval_seconds = interval_to_seconds(interval);
+    let next_close_time = candle_timestamp + interval_seconds;
+    let remaining_seconds = next_close_time - now;
+    
+    if remaining_seconds <= 0 {
+        return "0s".to_string();
+    }
+    
+    // Formater le temps restant
+    let hours = remaining_seconds / 3600;
+    let minutes = (remaining_seconds % 3600) / 60;
+    let seconds = remaining_seconds % 60;
+    
+    if hours > 0 {
+        format!("{}h {}m", hours, minutes)
+    } else if minutes > 0 {
+        format!("{}m {}s", minutes, seconds)
+    } else {
+        format!("{}s", seconds)
+    }
+}
 
 /// Style pour les axes
 pub struct AxisStyle {
@@ -116,6 +167,52 @@ impl<'a> Program<YAxisMessage> for YAxisProgram<'a> {
             }
 
             price += price_step;
+        }
+
+        // === Dessiner le temps restant avant clôture de la bougie ===
+        if let Some(last_candle) = self.chart_state.last_candle() {
+            // Obtenir l'intervalle de la série active
+            if let Some(active_series) = self.chart_state.series_manager.active_series().next() {
+                let current_price = last_candle.close;
+                let y = viewport.price_scale().price_to_y(current_price);
+                
+                // Ne dessiner que si visible
+                if y >= 0.0 && y <= viewport.height() {
+                    // Couleur selon si le prix est haussier ou baissier
+                    let is_bullish = last_candle.close >= last_candle.open;
+                    let bg_color = if is_bullish {
+                        Color::from_rgba(0.0, 0.5, 0.0, 1.0) // Vert foncé opaque
+                    } else {
+                        Color::from_rgba(0.5, 0.0, 0.0, 1.0) // Rouge foncé opaque
+                    };
+                    
+                    // Calculer le temps restant avant la clôture
+                    let time_remaining = calculate_time_remaining(last_candle.timestamp, &active_series.interval);
+                    
+                    // Dimensions du rectangle
+                    let rect_height = 16.0;
+                    let rect_width = bounds.width - 4.0;
+                    let rect_x = 2.0;
+                    let rect_y = y - rect_height / 2.0;
+                    
+                    // Dessiner le rectangle de fond
+                    let rect = Path::rectangle(
+                        Point::new(rect_x, rect_y),
+                        Size::new(rect_width, rect_height),
+                    );
+                    frame.fill(&rect, bg_color);
+                    
+                    // Afficher le temps restant
+                    let time_text = Text {
+                        content: time_remaining,
+                        position: Point::new(5.0, y - 5.0),
+                        color: Color::WHITE,
+                        size: iced::Pixels(style.text_size),
+                        ..Text::default()
+                    };
+                    frame.fill_text(time_text);
+                }
+            }
         }
 
         vec![frame.into_geometry()]

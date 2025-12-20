@@ -160,19 +160,6 @@ impl<'a> ChartProgram<'a> {
         };
         frame.fill_text(text);
     }
-    
-    /// Formate un prix pour l'affichage
-    fn format_price(price: f64) -> String {
-        if price >= 10000.0 {
-            format!("{:.0}", price)
-        } else if price >= 100.0 {
-            format!("{:.1}", price)
-        } else if price >= 1.0 {
-            format!("{:.2}", price)
-        } else {
-            format!("{:.4}", price)
-        }
-    }
 
     /// Dessine tous les éléments dessinés (rectangles et lignes horizontales)
     fn draw_all_drawings(&self, frame: &mut Frame) {

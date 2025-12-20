@@ -27,7 +27,7 @@ const SETTINGS_WINDOW_WIDTH: f32 = 500.0;
 const SETTINGS_WINDOW_HEIGHT: f32 = 450.0;
 
 /// Intervalle de mise à jour en temps réel (en secondes)
-const REALTIME_UPDATE_INTERVAL_SECS: u64 = 5;
+const REALTIME_UPDATE_INTERVAL_SECS: f64 = 0.9;
 
 /// Calcule le timestamp pour récupérer N bougies selon l'intervalle
 fn calculate_candles_back_timestamp(interval: &str, count: usize) -> i64 {
@@ -308,7 +308,7 @@ impl ChartApp {
         if self.realtime_enabled {
             // Subscription pour les mises à jour en temps réel
             Subscription::batch(vec![
-                iced::time::every(Duration::from_secs(REALTIME_UPDATE_INTERVAL_SECS))
+                iced::time::every(Duration::from_secs_f64(REALTIME_UPDATE_INTERVAL_SECS))
                     .map(|_| Message::RealtimeUpdate),
                 window::close_events().map(Message::WindowClosed),
             ])
