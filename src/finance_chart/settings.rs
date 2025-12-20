@@ -22,6 +22,13 @@ pub struct ChartStyle {
     pub crosshair_color: SerializableColor,
     /// Couleur du texte
     pub text_color: SerializableColor,
+    /// Active le défilement automatique vers les dernières données
+    #[serde(default = "default_auto_scroll")]
+    pub auto_scroll_enabled: bool,
+}
+
+fn default_auto_scroll() -> bool {
+    true
 }
 
 impl Default for ChartStyle {
@@ -35,6 +42,7 @@ impl Default for ChartStyle {
             current_price_color: SerializableColor::from_rgba(0.2, 0.6, 1.0, 0.8),
             crosshair_color: SerializableColor::from_rgba(0.6, 0.6, 0.6, 0.8),
             text_color: SerializableColor::from_rgba(0.8, 0.8, 0.8, 1.0),
+            auto_scroll_enabled: true,
         }
     }
 }

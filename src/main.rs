@@ -1,7 +1,9 @@
 mod finance_chart;
 
-use iced::widget::{button, column, container, row, text, scrollable, Space};
+use iced::widget::{button, column, container, row, text, scrollable, Space, checkbox, text_input};
 use iced::{Element, Length, Task, Theme, Color, Size, window, Subscription};
+use std::time::Duration;
+use std::collections::HashMap;
 use finance_chart::{
     chart, load_all_from_directory, ChartState, x_axis, y_axis,
     X_AXIS_HEIGHT, Y_AXIS_WIDTH, ToolsState, tools_panel, TOOLS_PANEL_WIDTH,
@@ -10,10 +12,47 @@ use finance_chart::{
     settings::{color_fields, preset_colors, SerializableColor},
     ChartMessage, YAxisMessage, XAxisMessage, ToolsPanelMessage, SeriesPanelMessage,
     tools_canvas::Action as HistoryAction,
+    BinanceProvider, UpdateResult,
+    core::{SeriesId, Candle},
+    ProviderConfigManager, ProviderType,
 };
 
 /// Chemin vers le fichier de données
 const DATA_FILE: &str = "data/BTCUSDT_1h.json";
+
+/// Dimensions par défaut de la fenêtre principale
+const MAIN_WINDOW_WIDTH: f32 = 1200.0;
+const MAIN_WINDOW_HEIGHT: f32 = 800.0;
+
+/// Dimensions de la fenêtre de settings
+const SETTINGS_WINDOW_WIDTH: f32 = 500.0;
+const SETTINGS_WINDOW_HEIGHT: f32 = 450.0;
+
+/// Intervalle de mise à jour en temps réel (en secondes)
+const REALTIME_UPDATE_INTERVAL_SECS: f64 = 0.9;
+
+/// Calcule le timestamp pour récupérer N bougies selon l'intervalle
+fn calculate_candles_back_timestamp(interval: &str, count: usize) -> i64 {
+    let seconds_per_candle = match interval {
+        "1m" => 60,
+        "3m" => 180,
+        "5m" => 300,
+        "15m" => 900,
+        "30m" => 1800,
+        "1h" => 3600,
+        "2h" => 7200,
+        "4h" => 14400,
+        "6h" => 21600,
+        "8h" => 28800,
+        "12h" => 43200,
+        "1d" => 86400,
+        "3d" => 259200,
+        "1w" => 604800,
+        "1M" => 2592000, // Approximation (30 jours)
+        _ => 3600, // Défaut: 1h
+    };
+    (count * seconds_per_candle) as i64
+}
 
 fn main() -> iced::Result {
     iced::daemon(ChartApp::new, ChartApp::update, ChartApp::view)
@@ -21,6 +60,72 @@ fn main() -> iced::Result {
         .theme(ChartApp::theme)
         .subscription(ChartApp::subscription)
         .run()
+}
+
+/// Type de fenêtre
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WindowType {
+    Main,
+    Settings,
+    ProviderConfig,
+}
+
+/// Gestionnaire de fenêtres simplifié
+#[derive(Debug, Clone)]
+struct WindowManager {
+    main_window_id: Option<window::Id>,
+    settings_window_id: Option<window::Id>,
+    provider_config_window_id: Option<window::Id>,
+}
+
+impl WindowManager {
+    fn new(main_id: window::Id) -> Self {
+        Self {
+            main_window_id: Some(main_id),
+            settings_window_id: None,
+            provider_config_window_id: None,
+        }
+    }
+    
+    fn get_id(&self, window_type: WindowType) -> Option<window::Id> {
+        match window_type {
+            WindowType::Main => self.main_window_id,
+            WindowType::Settings => self.settings_window_id,
+            WindowType::ProviderConfig => self.provider_config_window_id,
+        }
+    }
+    
+    fn set_id(&mut self, window_type: WindowType, id: window::Id) {
+        match window_type {
+            WindowType::Main => self.main_window_id = Some(id),
+            WindowType::Settings => self.settings_window_id = Some(id),
+            WindowType::ProviderConfig => self.provider_config_window_id = Some(id),
+        }
+    }
+    
+    fn remove_id(&mut self, window_type: WindowType) {
+        match window_type {
+            WindowType::Main => self.main_window_id = None,
+            WindowType::Settings => self.settings_window_id = None,
+            WindowType::ProviderConfig => self.provider_config_window_id = None,
+        }
+    }
+    
+    fn is_open(&self, window_type: WindowType) -> bool {
+        self.get_id(window_type).is_some()
+    }
+    
+    fn get_window_type(&self, id: window::Id) -> Option<WindowType> {
+        if self.main_window_id == Some(id) {
+            Some(WindowType::Main)
+        } else if self.settings_window_id == Some(id) {
+            Some(WindowType::Settings)
+        } else if self.provider_config_window_id == Some(id) {
+            Some(WindowType::ProviderConfig)
+        } else {
+            None
+        }
+    }
 }
 
 /// Application principale - possède directement tout l'état (pas de Rc<RefCell>)
@@ -32,12 +137,24 @@ struct ChartApp {
     chart_style: ChartStyle,
     
     // Gestion des fenêtres
-    main_window_id: Option<window::Id>,
-    settings_window_id: Option<window::Id>,
+    windows: WindowManager,
     
     // État temporaire pour l'édition des settings
     editing_style: Option<ChartStyle>,
     editing_color_index: Option<usize>,
+    
+    // Mode temps réel
+    binance_provider: BinanceProvider,
+    realtime_enabled: bool,
+    
+    // Configuration des providers
+    provider_config: ProviderConfigManager,
+    
+    // État temporaire pour la fenêtre de configuration des providers
+    editing_provider_token: HashMap<ProviderType, String>,
+    
+    // Compteur de version pour forcer le re-render du canvas
+    render_version: u64,
 }
 
 /// Messages de l'application
@@ -67,12 +184,27 @@ enum Message {
     ApplySettings,
     CancelSettings,
     ToggleColorPicker(usize),
+    ToggleAutoScroll,
+    
+    // === Messages temps réel ===
+    RealtimeUpdate,
+    RealtimeUpdateComplete(Vec<(SeriesId, String, Result<Option<Candle>, String>)>),
+    CompleteMissingData,
+    CompleteMissingDataComplete(Vec<(SeriesId, String, Result<Vec<Candle>, String>)>),
+    
+    // === Messages de configuration des providers ===
+    OpenProviderConfig,
+    ProviderConfigWindowOpened(window::Id),
+    SelectProvider(ProviderType),
+    UpdateProviderToken(ProviderType, String),
+    ApplyProviderConfig,
+    CancelProviderConfig,
 }
 
 impl ChartApp {
     fn new() -> (Self, Task<Message>) {
         // Charger toutes les séries depuis le dossier data
-        let mut chart_state = ChartState::new(1200.0, 800.0);
+        let mut chart_state = ChartState::new(MAIN_WINDOW_WIDTH, MAIN_WINDOW_HEIGHT);
         
         match load_all_from_directory("data") {
             Ok(series_list) => {
@@ -104,6 +236,7 @@ impl ChartApp {
                     Err(e2) => {
                         eprintln!("❌ Erreur de chargement: {}", e2);
                         eprintln!("   Aucune donnée chargée.");
+                        eprintln!("   Détails: {}", e2);
                     }
                 }
             }
@@ -111,16 +244,23 @@ impl ChartApp {
         
         // Créer l'état des outils et charger les dessins sauvegardés
         let mut tools_state = ToolsState::default();
-        if let Err(e) = tools_state.load_from_file("drawings.json") {
-            if !e.to_string().contains("No such file") && !e.to_string().contains("cannot find") {
-                eprintln!("⚠️ Impossible de charger les dessins: {}", e);
+        match tools_state.load_from_file("drawings.json") {
+            Ok(()) => {
+                println!(
+                    "✅ Dessins chargés: {} rectangles, {} lignes horizontales",
+                    tools_state.rectangles.len(),
+                    tools_state.horizontal_lines.len()
+                );
             }
-        } else {
-            println!(
-                "✅ Dessins chargés: {} rectangles, {} lignes horizontales",
-                tools_state.rectangles.len(),
-                tools_state.horizontal_lines.len()
-            );
+            Err(e) => {
+                let error_msg = e.to_string();
+                // Ignorer seulement les erreurs "fichier non trouvé"
+                if !error_msg.contains("No such file") 
+                    && !error_msg.contains("cannot find")
+                    && !error_msg.contains("not found") {
+                    eprintln!("⚠️ Impossible de charger les dessins: {}", e);
+                }
+            }
         }
 
         // Charger le style
@@ -132,9 +272,38 @@ impl ChartApp {
             Err(_) => ChartStyle::default(),
         };
 
+        // Charger la configuration des providers
+        let provider_config = match ProviderConfigManager::load_from_file("provider_config.json") {
+            Ok(config) => {
+                println!("✅ Configuration des providers chargée depuis provider_config.json");
+                config
+            }
+            Err(_) => {
+                println!("ℹ️ Configuration des providers par défaut utilisée");
+                ProviderConfigManager::new()
+            }
+        };
+
+        // Créer le provider Binance avec le token configuré
+        let binance_provider = if let Some(config) = provider_config.active_config() {
+            BinanceProvider::with_token(config.api_token.clone())
+        } else {
+            BinanceProvider::new()
+        };
+        
+        // Compléter les données manquantes depuis Binance
+        let complete_task = Task::perform(
+            async {
+                // Attendre un peu pour que l'UI soit prête
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                Message::CompleteMissingData
+            },
+            |_| Message::CompleteMissingData,
+        );
+
         // Ouvrir la fenêtre principale
         let (main_id, open_task) = window::open(window::Settings {
-            size: Size::new(1200.0, 800.0),
+            size: Size::new(MAIN_WINDOW_WIDTH, MAIN_WINDOW_HEIGHT),
             ..Default::default()
         });
 
@@ -144,24 +313,33 @@ impl ChartApp {
                 tools_state, 
                 settings_state: SettingsState::default(),
                 chart_style,
-                main_window_id: Some(main_id),
-                settings_window_id: None,
+                provider_config,
+                editing_provider_token: std::collections::HashMap::new(),
+                windows: WindowManager::new(main_id),
                 editing_style: None,
                 editing_color_index: None,
+                binance_provider,
+                realtime_enabled: true, // Activer le mode temps réel par défaut
+                render_version: 0,
             },
-            open_task.map(Message::MainWindowOpened),
+            Task::batch(vec![
+                open_task.map(Message::MainWindowOpened),
+                complete_task,
+            ]),
         )
     }
 
     fn title(&self, window_id: window::Id) -> String {
-        if Some(window_id) == self.settings_window_id {
-            String::from("Settings - Style Chart")
-        } else {
-            // Afficher le symbole de la série active, ou un titre par défaut
-            if let Some(active_series) = self.chart_state.series_manager.active_series().next() {
-                active_series.symbol.clone()
-            } else {
-                String::from("CandleChart")
+        match self.windows.get_window_type(window_id) {
+            Some(WindowType::Settings) => String::from("Settings - Style Chart"),
+            Some(WindowType::ProviderConfig) => String::from("Provider Configuration"),
+            Some(WindowType::Main) | None => {
+                // Afficher le symbole de la série active, ou un titre par défaut
+                if let Some(active_series) = self.chart_state.series_manager.active_series().next() {
+                    active_series.symbol.clone()
+                } else {
+                    String::from("CandleChart")
+                }
             }
         }
     }
@@ -171,7 +349,16 @@ impl ChartApp {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        window::close_events().map(Message::WindowClosed)
+        if self.realtime_enabled {
+            // Subscription pour les mises à jour en temps réel
+            Subscription::batch(vec![
+                iced::time::every(Duration::from_secs_f64(REALTIME_UPDATE_INTERVAL_SECS))
+                    .map(|_| Message::RealtimeUpdate),
+                window::close_events().map(Message::WindowClosed),
+            ])
+        } else {
+            window::close_events().map(Message::WindowClosed)
+        }
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
@@ -222,33 +409,133 @@ impl ChartApp {
             Message::MainWindowOpened(_id) => Task::none(),
             
             Message::OpenSettings => {
-                if self.settings_window_id.is_some() {
+                if self.windows.is_open(WindowType::Settings) {
                     return Task::none();
                 }
                 self.editing_style = Some(self.chart_style.clone());
                 self.editing_color_index = None;
                 
                 let (id, task) = window::open(window::Settings {
-                    size: Size::new(500.0, 450.0),
+                    size: Size::new(SETTINGS_WINDOW_WIDTH, SETTINGS_WINDOW_HEIGHT),
                     resizable: false,
                     ..Default::default()
                 });
-                self.settings_window_id = Some(id);
+                self.windows.set_id(WindowType::Settings, id);
                 task.map(Message::SettingsWindowOpened)
             }
             
             Message::SettingsWindowOpened(_id) => Task::none(),
             
             Message::WindowClosed(id) => {
-                if Some(id) == self.settings_window_id {
-                    self.settings_window_id = None;
-                    self.editing_style = None;
-                    self.editing_color_index = None;
-                } else if Some(id) == self.main_window_id {
-                    self.main_window_id = None;
-                    if let Some(settings_id) = self.settings_window_id {
-                        return window::close(settings_id);
+                match self.windows.get_window_type(id) {
+                    Some(WindowType::Settings) => {
+                        self.windows.remove_id(WindowType::Settings);
+                        self.editing_style = None;
+                        self.editing_color_index = None;
                     }
+                    Some(WindowType::ProviderConfig) => {
+                        self.windows.remove_id(WindowType::ProviderConfig);
+                        self.editing_provider_token.clear();
+                    }
+                    Some(WindowType::Main) => {
+                        self.windows.remove_id(WindowType::Main);
+                        // Fermer les autres fenêtres si elles sont ouvertes
+                        if let Some(settings_id) = self.windows.get_id(WindowType::Settings) {
+                            return window::close(settings_id);
+                        }
+                        if let Some(provider_id) = self.windows.get_id(WindowType::ProviderConfig) {
+                            return window::close(provider_id);
+                        }
+                    }
+                    None => {}
+                }
+                Task::none()
+            }
+            
+            // === Gestion de la configuration des providers ===
+            Message::OpenProviderConfig => {
+                if self.windows.is_open(WindowType::ProviderConfig) {
+                    return Task::none();
+                }
+                
+                // Initialiser les tokens en cours d'édition
+                for provider_type in ProviderType::all() {
+                    if let Some(config) = self.provider_config.providers.get(&provider_type) {
+                        self.editing_provider_token.insert(
+                            provider_type,
+                            config.api_token.clone().unwrap_or_default(),
+                        );
+                    } else {
+                        self.editing_provider_token.insert(provider_type, String::new());
+                    }
+                }
+                
+                let (id, task) = window::open(window::Settings {
+                    size: Size::new(600.0, 500.0),
+                    resizable: false,
+                    ..Default::default()
+                });
+                self.windows.set_id(WindowType::ProviderConfig, id);
+                task.map(Message::ProviderConfigWindowOpened)
+            }
+            
+            Message::ProviderConfigWindowOpened(_id) => Task::none(),
+            
+            Message::UpdateProviderToken(provider_type, token) => {
+                self.editing_provider_token.insert(provider_type, token);
+                Task::none()
+            }
+            
+            Message::ApplyProviderConfig => {
+                // Appliquer les tokens modifiés
+                for (provider_type, token) in &self.editing_provider_token {
+                    let token_opt = if token.is_empty() {
+                        None
+                    } else {
+                        Some(token.clone())
+                    };
+                    self.provider_config.set_provider_token(*provider_type, token_opt);
+                }
+                
+                // Sauvegarder la configuration
+                if let Err(e) = self.provider_config.save_to_file("provider_config.json") {
+                    eprintln!("⚠️ Erreur sauvegarde configuration providers: {}", e);
+                } else {
+                    println!("✅ Configuration des providers sauvegardée dans provider_config.json");
+                }
+                
+                // Recréer le provider avec la nouvelle configuration
+                if let Some(config) = self.provider_config.active_config() {
+                    self.binance_provider = BinanceProvider::with_token(config.api_token.clone());
+                    println!("✅ Provider recréé avec la nouvelle configuration");
+                }
+                
+                // Fermer la fenêtre
+                if let Some(id) = self.windows.get_id(WindowType::ProviderConfig) {
+                    self.windows.remove_id(WindowType::ProviderConfig);
+                    self.editing_provider_token.clear();
+                    return window::close(id);
+                }
+                Task::none()
+            }
+            
+            Message::SelectProvider(provider_type) => {
+                self.provider_config.set_active_provider(provider_type);
+                
+                // Recréer le provider avec la configuration du nouveau provider actif
+                if let Some(config) = self.provider_config.active_config() {
+                    self.binance_provider = BinanceProvider::with_token(config.api_token.clone());
+                    println!("✅ Provider changé et recréé");
+                }
+                
+                Task::none()
+            }
+            
+            Message::CancelProviderConfig => {
+                if let Some(id) = self.windows.get_id(WindowType::ProviderConfig) {
+                    self.windows.remove_id(WindowType::ProviderConfig);
+                    self.editing_provider_token.clear();
+                    return window::close(id);
                 }
                 Task::none()
             }
@@ -274,8 +561,8 @@ impl ChartApp {
                         println!("✅ Style sauvegardé dans chart_style.json");
                     }
                 }
-                if let Some(id) = self.settings_window_id {
-                    self.settings_window_id = None;
+                if let Some(id) = self.windows.get_id(WindowType::Settings) {
+                    self.windows.remove_id(WindowType::Settings);
                     self.editing_color_index = None;
                     return window::close(id);
                 }
@@ -285,8 +572,8 @@ impl ChartApp {
             Message::CancelSettings => {
                 self.editing_style = None;
                 self.editing_color_index = None;
-                if let Some(id) = self.settings_window_id {
-                    self.settings_window_id = None;
+                if let Some(id) = self.windows.get_id(WindowType::Settings) {
+                    self.windows.remove_id(WindowType::Settings);
                     return window::close(id);
                 }
                 Task::none()
@@ -299,6 +586,339 @@ impl ChartApp {
                     self.editing_color_index = Some(index);
                 }
                 Task::none()
+            }
+            
+            Message::ToggleAutoScroll => {
+                if let Some(ref mut style) = self.editing_style {
+                    style.auto_scroll_enabled = !style.auto_scroll_enabled;
+                }
+                Task::none()
+            }
+            
+            // === Messages temps réel ===
+            Message::CompleteMissingData => {
+                self.complete_missing_data()
+            }
+            
+            Message::CompleteMissingDataComplete(results) => {
+                println!("📥 CompleteMissingDataComplete: {} résultats reçus", results.len());
+                self.apply_complete_missing_data_results(results);
+                Task::none()
+            }
+            
+            Message::RealtimeUpdate => {
+                self.update_realtime()
+            }
+            
+            Message::RealtimeUpdateComplete(results) => {
+                println!("📥 RealtimeUpdateComplete: {} résultats reçus", results.len());
+                self.apply_realtime_updates(results);
+                Task::none()
+            }
+        }
+    }
+    
+    /// Complète les données manquantes depuis Binance pour toutes les séries
+    /// 
+    /// Utilise Iced Tasks pour faire les requêtes en parallèle sans bloquer le thread principal.
+    fn complete_missing_data(&mut self) -> Task<Message> {
+        println!("🔄 Complétion des données manquantes depuis Binance...");
+        
+        // Collecter toutes les informations nécessaires d'abord
+        let mut updates: Vec<(SeriesId, String, Option<i64>)> = Vec::new();
+        
+        for series in self.chart_state.series_manager.all_series() {
+            let series_id = series.id.clone();
+            let series_name = series.full_name();
+            
+            // Vérifier si le format est compatible avec Binance (SYMBOL_INTERVAL)
+            if !series_name.contains('_') {
+                println!("  ⚠️  {}: Format incompatible avec Binance (attendu: SYMBOL_INTERVAL)", series_name);
+                continue;
+            }
+            
+            // Récupérer le dernier timestamp connu
+            let last_ts = series.data.max_timestamp();
+            updates.push((series_id, series_name, last_ts));
+        }
+        
+        if updates.is_empty() {
+            println!("ℹ️  Aucune série à compléter");
+            return Task::none();
+        }
+        
+        // Cloner le provider pour l'utiliser dans la Task async
+        let provider = self.binance_provider.clone();
+        
+        // Calculer le timestamp actuel une seule fois
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        
+        // Créer une Task async qui fait toutes les requêtes en parallèle
+        println!("🚀 Démarrage des requêtes async pour {} série(s)", updates.len());
+        Task::perform(
+            async move {
+                use futures::future::join_all;
+                
+                // Créer un vecteur de futures pour toutes les requêtes
+                let futures: Vec<_> = updates
+                    .into_iter()
+                    .map(|(series_id, series_name, last_ts)| {
+                        let provider = provider.clone();
+                        let series_id_clone = series_id.clone();
+                        let series_name_clone = series_name.clone();
+                        
+                        async move {
+                            let result = if let Some(last_timestamp) = last_ts {
+                                // Extraire l'intervalle depuis le nom de la série (format: SYMBOL_INTERVAL)
+                                let interval = series_name_clone.split('_').last().unwrap_or("1h");
+                                
+                                // Calculer le seuil pour déterminer si les données sont récentes (2 intervalles)
+                                let threshold_seconds = calculate_candles_back_timestamp(interval, 2);
+                                
+                                // Si les données sont récentes (moins de 2 intervalles), on complète
+                                // Sinon, on récupère depuis le dernier timestamp
+                                let since_ts = if now - last_timestamp < threshold_seconds {
+                                    last_timestamp
+                                } else {
+                                    // Si les données sont anciennes, on récupère les 100 dernières bougies
+                                    println!("  ℹ️  {}: Données anciennes, récupération des 100 dernières bougies", series_name_clone);
+                                    // Calculer dynamiquement selon l'intervalle
+                                    now - calculate_candles_back_timestamp(interval, 100)
+                                };
+                                
+                                println!("  📥 {}: Récupération depuis le timestamp {}", series_name_clone, since_ts);
+                                provider.fetch_new_candles_async(&series_id_clone, since_ts).await
+                            } else {
+                                // Aucune donnée, synchroniser complètement
+                                println!("  📥 {}: Aucune donnée, synchronisation complète", series_name_clone);
+                                provider.fetch_all_candles_async(&series_id_clone).await
+                            };
+                            
+                            (series_id, series_name_clone, result)
+                        }
+                    })
+                    .collect();
+                
+                // Exécuter toutes les requêtes en parallèle
+                let results = join_all(futures).await;
+                println!("✅ Toutes les requêtes async terminées");
+                results
+            },
+            Message::CompleteMissingDataComplete,
+        )
+    }
+    
+    /// Applique les résultats de la complétion des données manquantes
+    fn apply_complete_missing_data_results(&mut self, results: Vec<(SeriesId, String, Result<Vec<Candle>, String>)>) {
+        let mut has_updates = false;
+        
+        for (series_id, series_name, result) in results {
+            match result {
+                Ok(candles) => {
+                    if candles.is_empty() {
+                        println!("  ℹ️  {}: Aucune nouvelle bougie", series_name);
+                    } else {
+                        match self.chart_state.merge_candles(&series_id, candles) {
+                            UpdateResult::MultipleCandlesAdded(n) => {
+                                println!("  ✅ {}: {} nouvelles bougies ajoutées", series_name, n);
+                                has_updates = true;
+                            }
+                            UpdateResult::Error(e) => {
+                                println!("  ❌ {}: Erreur lors de la fusion - {}", series_name, e);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("  ❌ {}: Erreur - {}", series_name, e);
+                }
+            }
+        }
+        
+        // Ajuster le viewport une seule fois à la fin (si auto-scroll activé)
+        if has_updates && self.chart_style.auto_scroll_enabled {
+            self.chart_state.auto_scroll_to_latest();
+        }
+        println!("✅ Complétion terminée");
+    }
+    
+    /// Met à jour les données en temps réel pour les séries actives
+    /// 
+    /// Utilise Iced Tasks pour faire les requêtes en parallèle sans bloquer le thread principal.
+    fn update_realtime(&mut self) -> Task<Message> {
+        if !self.realtime_enabled {
+            return Task::none();
+        }
+        
+        // Collecter les IDs des séries actives d'abord
+        let active_series: Vec<(SeriesId, String)> = self.chart_state.series_manager
+            .active_series()
+            .filter_map(|s| {
+                let name = s.full_name();
+                // Vérifier si le format est compatible avec Binance
+                if name.contains('_') {
+                    Some((s.id.clone(), name))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        
+        if active_series.is_empty() {
+            return Task::none();
+        }
+        
+        // Cloner le provider pour l'utiliser dans la Task async
+        let provider = self.binance_provider.clone();
+        
+        // Créer une Task async qui fait toutes les requêtes en parallèle
+        println!("🚀 Démarrage des requêtes async pour {} série(s)", active_series.len());
+        Task::perform(
+            async move {
+                use futures::future::join_all;
+                
+                // Créer un vecteur de futures pour toutes les requêtes
+                let futures: Vec<_> = active_series
+                    .iter()
+                    .map(|(series_id, series_name)| {
+                        let provider = provider.clone();
+                        let series_id = series_id.clone();
+                        let series_name = series_name.clone();
+                        
+                        async move {
+                            let result = provider.get_latest_candle_async(&series_id).await;
+                            (series_id, series_name, result)
+                        }
+                    })
+                    .collect();
+                
+                // Exécuter toutes les requêtes en parallèle
+                let results = join_all(futures).await;
+                println!("✅ Toutes les requêtes async terminées");
+                results
+            },
+            Message::RealtimeUpdateComplete,
+        )
+    }
+    
+    /// Applique les résultats des mises à jour en temps réel
+    fn apply_realtime_updates(&mut self, results: Vec<(SeriesId, String, Result<Option<Candle>, String>)>) {
+        let mut has_updates = false;
+        let mut has_new_candles = false;
+        
+        for (series_id, series_name, result) in results {
+            match result {
+                Ok(Some(candle)) => {
+                    match self.chart_state.update_candle(&series_id, candle) {
+                        UpdateResult::NewCandle => {
+                            println!("🔄 {}: Nouvelle bougie ajoutée", series_name);
+                            has_updates = true;
+                            has_new_candles = true;
+                        }
+                        UpdateResult::CandleUpdated => {
+                            // Bougie mise à jour - on marque aussi comme update pour le re-render
+                            has_updates = true;
+                        }
+                        UpdateResult::Error(e) => {
+                            eprintln!("❌ {}: Erreur mise à jour - {}", series_name, e);
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(None) => {
+                    // Aucune nouvelle bougie
+                }
+                Err(e) => {
+                    eprintln!("❌ {}: Erreur récupération - {}", series_name, e);
+                }
+            }
+        }
+        
+        // Ajuster le viewport si nécessaire (si auto-scroll activé et nouvelles bougies)
+        if has_new_candles && self.chart_style.auto_scroll_enabled {
+            self.chart_state.auto_scroll_to_latest();
+        }
+        
+        // Forcer le re-render en incrémentant le compteur de version
+        // Cela permet à Iced de détecter que l'état a changé et de re-rendre le canvas
+        if has_updates {
+            self.render_version = self.render_version.wrapping_add(1);
+        }
+    }
+
+    /// Helper pour finaliser l'édition d'un rectangle avec historique
+    fn finish_rectangle_edit(&mut self) {
+        if let (Some(idx), Some(old_rect)) = (
+            self.tools_state.editing.selected_index,
+            self.tools_state.editing.original_rect.clone(),
+        ) {
+            if idx < self.tools_state.rectangles.len() {
+                let new_rect = self.tools_state.rectangles[idx].clone();
+                if old_rect.start_time != new_rect.start_time ||
+                   old_rect.end_time != new_rect.end_time ||
+                   old_rect.start_price != new_rect.start_price ||
+                   old_rect.end_price != new_rect.end_price {
+                    self.tools_state.history.record(HistoryAction::ModifyRectangle {
+                        index: idx,
+                        old_rect,
+                        new_rect,
+                    });
+                }
+            }
+        }
+        self.tools_state.editing.finish();
+    }
+    
+    /// Helper pour finaliser l'édition d'une ligne horizontale avec historique
+    fn finish_hline_edit(&mut self) {
+        if let (Some(idx), Some(old_line)) = (
+            self.tools_state.hline_editing.selected_index,
+            self.tools_state.hline_editing.original_line.clone(),
+        ) {
+            if idx < self.tools_state.horizontal_lines.len() {
+                let new_line = self.tools_state.horizontal_lines[idx].clone();
+                if (old_line.price - new_line.price).abs() > 0.0001 {
+                    self.tools_state.history.record(HistoryAction::ModifyHLine {
+                        index: idx,
+                        old_line,
+                        new_line,
+                    });
+                }
+            }
+        }
+        self.tools_state.hline_editing.finish();
+    }
+    
+    /// Helper pour supprimer un élément sélectionné avec historique
+    fn delete_selected(&mut self) {
+        // Supprimer rectangle sélectionné
+        if let Some(index) = self.tools_state.editing.selected_index {
+            if index < self.tools_state.rectangles.len() {
+                let deleted_rect = self.tools_state.rectangles[index].clone();
+                self.tools_state.history.record(HistoryAction::DeleteRectangle { 
+                    index, 
+                    rect: deleted_rect 
+                });
+                self.tools_state.rectangles.remove(index);
+                self.tools_state.editing.deselect();
+                return;
+            }
+        }
+        
+        // Supprimer ligne horizontale sélectionnée
+        if let Some(index) = self.tools_state.hline_editing.selected_index {
+            if index < self.tools_state.horizontal_lines.len() {
+                let deleted_line = self.tools_state.horizontal_lines[index].clone();
+                self.tools_state.history.record(HistoryAction::DeleteHLine { 
+                    index, 
+                    line: deleted_line 
+                });
+                self.tools_state.horizontal_lines.remove(index);
+                self.tools_state.hline_editing.deselect();
             }
         }
     }
@@ -377,25 +997,7 @@ impl ChartApp {
                 }
             }
             ChartMessage::FinishRectangleEdit => {
-                if let (Some(idx), Some(old_rect)) = (
-                    self.tools_state.editing.selected_index,
-                    self.tools_state.editing.original_rect.clone(),
-                ) {
-                    if idx < self.tools_state.rectangles.len() {
-                        let new_rect = self.tools_state.rectangles[idx].clone();
-                        if old_rect.start_time != new_rect.start_time ||
-                           old_rect.end_time != new_rect.end_time ||
-                           old_rect.start_price != new_rect.start_price ||
-                           old_rect.end_price != new_rect.end_price {
-                            self.tools_state.history.record(HistoryAction::ModifyRectangle {
-                                index: idx,
-                                old_rect,
-                                new_rect,
-                            });
-                        }
-                    }
-                }
-                self.tools_state.editing.finish();
+                self.finish_rectangle_edit();
             }
             ChartMessage::DeselectRectangle => {
                 self.tools_state.editing.deselect();
@@ -421,22 +1023,7 @@ impl ChartApp {
                 }
             }
             ChartMessage::FinishHLineEdit => {
-                if let (Some(idx), Some(old_line)) = (
-                    self.tools_state.hline_editing.selected_index,
-                    self.tools_state.hline_editing.original_line.clone(),
-                ) {
-                    if idx < self.tools_state.horizontal_lines.len() {
-                        let new_line = self.tools_state.horizontal_lines[idx].clone();
-                        if (old_line.price - new_line.price).abs() > 0.0001 {
-                            self.tools_state.history.record(HistoryAction::ModifyHLine {
-                                index: idx,
-                                old_line,
-                                new_line,
-                            });
-                        }
-                    }
-                }
-                self.tools_state.hline_editing.finish();
+                self.finish_hline_edit();
             }
             ChartMessage::DeselectHLine => {
                 self.tools_state.hline_editing.deselect();
@@ -444,26 +1031,7 @@ impl ChartApp {
             
             // === Suppression ===
             ChartMessage::DeleteSelected => {
-                // Supprimer rectangle sélectionné
-                if let Some(index) = self.tools_state.editing.selected_index {
-                    if index < self.tools_state.rectangles.len() {
-                        let deleted_rect = self.tools_state.rectangles[index].clone();
-                        self.tools_state.history.record(HistoryAction::DeleteRectangle { index, rect: deleted_rect });
-                        self.tools_state.rectangles.remove(index);
-                        self.tools_state.editing.deselect();
-                        return;
-                    }
-                }
-                
-                // Supprimer ligne horizontale sélectionnée
-                if let Some(index) = self.tools_state.hline_editing.selected_index {
-                    if index < self.tools_state.horizontal_lines.len() {
-                        let deleted_line = self.tools_state.horizontal_lines[index].clone();
-                        self.tools_state.history.record(HistoryAction::DeleteHLine { index, line: deleted_line });
-                        self.tools_state.horizontal_lines.remove(index);
-                        self.tools_state.hline_editing.deselect();
-                    }
-                }
+                self.delete_selected();
             }
             
             // === Historique ===
@@ -513,10 +1081,10 @@ impl ChartApp {
     }
 
     fn view(&self, window_id: window::Id) -> Element<'_, Message> {
-        if Some(window_id) == self.settings_window_id {
-            self.view_settings()
-        } else {
-            self.view_main()
+        match self.windows.get_window_type(window_id) {
+            Some(WindowType::Settings) => self.view_settings(),
+            Some(WindowType::ProviderConfig) => self.view_provider_config(),
+            Some(WindowType::Main) | None => self.view_main(),
         }
     }
 
@@ -528,13 +1096,27 @@ impl ChartApp {
             .map(|series| series.symbol.clone())
             .unwrap_or_else(|| String::from("Chart Candlestick"));
         
-        // Header avec titre et select box de séries
+        // Header avec titre, bouton de configuration et select box de séries
         let header = container(
             row![
                 text(title_text)
                     .size(24)
                     .color(Color::WHITE),
                 Space::new().width(Length::Fill),
+                button("⚙️ Provider")
+                    .on_press(Message::OpenProviderConfig)
+                    .style(|_theme, status| {
+                        let bg_color = match status {
+                            button::Status::Hovered => Color::from_rgb(0.2, 0.2, 0.25),
+                            _ => Color::from_rgb(0.15, 0.15, 0.18),
+                        };
+                        button::Style {
+                            background: Some(iced::Background::Color(bg_color)),
+                            text_color: Color::WHITE,
+                            ..Default::default()
+                        }
+                    }),
+                Space::new().width(Length::Fixed(10.0)),
                 series_select_box(&self.chart_state.series_manager).map(Message::SeriesPanel)
             ]
             .align_y(iced::Alignment::Center)
@@ -728,6 +1310,21 @@ impl ChartApp {
         ]
         .spacing(10);
 
+        // Toggle pour l'auto-scroll
+        let auto_scroll_enabled = editing_style
+            .map(|s| s.auto_scroll_enabled)
+            .unwrap_or(true);
+        
+        let auto_scroll_toggle = row![
+            checkbox(auto_scroll_enabled)
+                .on_toggle(|_| Message::ToggleAutoScroll),
+            text("Défilement automatique vers les dernières données")
+                .size(14)
+                .color(Color::from_rgb(0.8, 0.8, 0.8))
+        ]
+        .spacing(10)
+        .align_y(iced::Alignment::Center);
+
         // Layout complet
         let content = column![
             title,
@@ -735,6 +1332,10 @@ impl ChartApp {
             separator(),
             Space::new().height(10),
             scrollable(color_rows).height(Length::Fill),
+            Space::new().height(10),
+            separator(),
+            Space::new().height(10),
+            auto_scroll_toggle,
             Space::new().height(10),
             separator(),
             Space::new().height(10),
@@ -747,6 +1348,155 @@ impl ChartApp {
             .height(Length::Fill)
             .style(|_theme| container::Style {
                 background: Some(iced::Background::Color(Color::from_rgb(0.12, 0.12, 0.15))),
+                ..Default::default()
+            })
+            .into()
+    }
+
+    fn view_provider_config(&self) -> Element<'_, Message> {
+        let title = text("Configuration des Providers")
+            .size(20)
+            .color(Color::WHITE);
+
+        let mut provider_list = column![].spacing(15);
+
+        for provider_type in ProviderType::all() {
+            let is_active = self.provider_config.active_provider == provider_type;
+            let provider_name = text(provider_type.display_name())
+                .size(16)
+                .color(if is_active { Color::from_rgb(0.4, 0.8, 1.0) } else { Color::WHITE });
+            
+            let description = text(provider_type.description())
+                .size(12)
+                .color(Color::from_rgb(0.7, 0.7, 0.7));
+
+            // Token input
+            let current_token = self.editing_provider_token
+                .get(&provider_type)
+                .cloned()
+                .unwrap_or_default();
+            
+            let token_input = text_input("API Token (optionnel)", &current_token)
+                .on_input(move |token| Message::UpdateProviderToken(provider_type, token))
+                .padding(8);
+
+            // Bouton de sélection
+            let select_btn = if is_active {
+                button(text("✓ Actif").size(12))
+                    .style(|_theme, _status| button::Style {
+                        background: Some(iced::Background::Color(Color::from_rgb(0.2, 0.5, 0.2))),
+                        text_color: Color::WHITE,
+                        ..Default::default()
+                    })
+            } else {
+                button(text("Sélectionner").size(12))
+                    .on_press(Message::SelectProvider(provider_type))
+                    .style(|_theme, status| {
+                        let bg_color = match status {
+                            button::Status::Hovered => Color::from_rgb(0.2, 0.2, 0.25),
+                            _ => Color::from_rgb(0.15, 0.15, 0.18),
+                        };
+                        button::Style {
+                            background: Some(iced::Background::Color(bg_color)),
+                            text_color: Color::WHITE,
+                            ..Default::default()
+                        }
+                    })
+            };
+
+            let provider_card = container(
+                column![
+                    row![
+                        provider_name,
+                        Space::new().width(Length::Fill),
+                        select_btn
+                    ]
+                    .align_y(iced::Alignment::Center)
+                    .spacing(10),
+                    description,
+                    Space::new().height(Length::Fixed(5.0)),
+                    token_input,
+                ]
+                .spacing(8)
+                .padding(15)
+            )
+            .style(move |_theme| container::Style {
+                background: Some(iced::Background::Color(Color::from_rgb(0.1, 0.1, 0.12))),
+                border: iced::Border {
+                    color: if is_active {
+                        Color::from_rgb(0.4, 0.8, 1.0)
+                    } else {
+                        Color::from_rgb(0.2, 0.2, 0.25)
+                    },
+                    width: if is_active { 2.0 } else { 1.0 },
+                    radius: 8.0.into(),
+                },
+                ..Default::default()
+            });
+
+            provider_list = provider_list.push(provider_card);
+        }
+
+        let apply_btn = button(
+            text("Appliquer").size(14)
+        )
+        .on_press(Message::ApplyProviderConfig)
+        .padding([8, 20])
+        .style(|_theme, _status| button::Style {
+            background: Some(iced::Background::Color(Color::from_rgb(0.2, 0.5, 0.2))),
+            text_color: Color::WHITE,
+            border: iced::Border {
+                radius: 4.0.into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        let cancel_btn = button(
+            text("Annuler").size(14)
+        )
+        .on_press(Message::CancelProviderConfig)
+        .padding([8, 20])
+        .style(|_theme, status| {
+            let bg_color = match status {
+                button::Status::Hovered => Color::from_rgb(0.3, 0.2, 0.2),
+                _ => Color::from_rgb(0.25, 0.15, 0.15),
+            };
+            button::Style {
+                background: Some(iced::Background::Color(bg_color)),
+                text_color: Color::WHITE,
+                border: iced::Border {
+                    radius: 4.0.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }
+        });
+
+        let content = column![
+            title,
+            Space::new().height(Length::Fixed(20.0)),
+            scrollable(provider_list)
+                .width(Length::Fill)
+                .height(Length::Fill),
+            Space::new().height(Length::Fixed(15.0)),
+            row![
+                cancel_btn,
+                Space::new().width(Length::Fill),
+                apply_btn
+            ]
+            .spacing(10)
+        ]
+        .spacing(15)
+        .padding(20)
+        .width(Length::Fill)
+        .height(Length::Fill);
+
+        container(content)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(|_theme| container::Style {
+                background: Some(iced::Background::Color(Color::from_rgb(0.08, 0.08, 0.10))),
                 ..Default::default()
             })
             .into()

@@ -1,6 +1,7 @@
-use super::super::core::{SeriesManager, SeriesData};
+use super::super::core::{SeriesManager, SeriesData, Candle, SeriesId};
 use super::super::interaction::InteractionState;
 use super::super::viewport::Viewport;
+use super::super::realtime::{UpdateResult, RealtimeDataProvider};
 
 /// Nombre de bougies visibles par défaut à l'initialisation
 const DEFAULT_VISIBLE_CANDLES: usize = 150;
@@ -113,5 +114,153 @@ impl ChartState {
     /// Termine le pan
     pub fn end_pan(&mut self) {
         self.interaction.end_pan();
+    }
+
+    // ============================================================================
+    // Mises à jour en temps réel
+    // ============================================================================
+
+    /// Met à jour ou ajoute une bougie à une série spécifique
+    ///
+    /// Si la bougie a le même timestamp que la dernière bougie de la série,
+    /// elle sera mise à jour. Sinon, une nouvelle bougie sera ajoutée.
+    ///
+    /// # Arguments
+    /// * `series_id` - Identifiant de la série à mettre à jour
+    /// * `candle` - Nouvelle bougie à ajouter ou mettre à jour
+    ///
+    /// # Retourne
+    /// Le résultat de la mise à jour
+    pub fn update_candle(&mut self, series_id: &SeriesId, candle: Candle) -> UpdateResult {
+        match self.series_manager.update_series_candle(series_id, candle) {
+            Some(Ok(true)) => UpdateResult::CandleUpdated,
+            Some(Ok(false)) => UpdateResult::NewCandle,
+            Some(Err(e)) => UpdateResult::Error(format!("Bougie invalide: {}", e)),
+            None => UpdateResult::Error(format!("Série {} introuvable", series_id.name)),
+        }
+    }
+
+    /// Fusionne plusieurs bougies dans une série spécifique
+    ///
+    /// Les bougies sont fusionnées intelligemment : celles avec le même timestamp
+    /// remplacent les existantes, les nouvelles sont insérées dans l'ordre chronologique.
+    ///
+    /// # Arguments
+    /// * `series_id` - Identifiant de la série à mettre à jour
+    /// * `candles` - Liste des bougies à fusionner
+    ///
+    /// # Retourne
+    /// Le résultat de la fusion avec le nombre de nouvelles bougies ajoutées
+    pub fn merge_candles(&mut self, series_id: &SeriesId, candles: Vec<Candle>) -> UpdateResult {
+        match self.series_manager.merge_series_candles(series_id, candles) {
+            Some(added) => UpdateResult::MultipleCandlesAdded(added),
+            None => UpdateResult::Error(format!("Série {} introuvable", series_id.name)),
+        }
+    }
+
+    /// Met à jour les données depuis un fournisseur de données en temps réel
+    ///
+    /// Cette méthode récupère la dernière bougie depuis le provider et la met à jour
+    /// dans la série correspondante.
+    ///
+    /// # Arguments
+    /// * `series_id` - Identifiant de la série à mettre à jour
+    /// * `provider` - Fournisseur de données en temps réel
+    ///
+    /// # Retourne
+    /// Le résultat de la mise à jour
+    pub fn update_from_provider<P: RealtimeDataProvider>(
+        &mut self,
+        series_id: &SeriesId,
+        provider: &P,
+    ) -> UpdateResult {
+        match provider.fetch_latest_candle(series_id) {
+            Ok(Some(candle)) => {
+                let result = self.update_candle(series_id, candle);
+                // Mettre à jour le viewport si nécessaire (si on est sur la dernière bougie)
+                if matches!(result, UpdateResult::NewCandle | UpdateResult::CandleUpdated) {
+                    // Optionnel : ajuster le viewport pour suivre les nouvelles données
+                    // self.auto_scroll_to_latest();
+                }
+                result
+            }
+            Ok(None) => UpdateResult::NoUpdate,
+            Err(e) => UpdateResult::Error(e),
+        }
+    }
+
+    /// Synchronise une série complète depuis un fournisseur de données
+    ///
+    /// Récupère toutes les bougies depuis le provider et les fusionne avec les données existantes.
+    /// Utile pour la première connexion ou une resynchronisation complète.
+    ///
+    /// # Arguments
+    /// * `series_id` - Identifiant de la série à synchroniser
+    /// * `provider` - Fournisseur de données en temps réel
+    ///
+    /// # Retourne
+    /// Le résultat de la synchronisation
+    pub fn sync_from_provider<P: RealtimeDataProvider>(
+        &mut self,
+        series_id: &SeriesId,
+        provider: &P,
+    ) -> UpdateResult {
+        match provider.fetch_all_candles(series_id) {
+            Ok(candles) => {
+                if candles.is_empty() {
+                    UpdateResult::NoUpdate
+                } else {
+                    self.merge_candles(series_id, candles)
+                }
+            }
+            Err(e) => UpdateResult::Error(e),
+        }
+    }
+
+    /// Récupère les nouvelles bougies depuis un timestamp donné
+    ///
+    /// Utile pour récupérer plusieurs bougies manquantes d'un coup.
+    ///
+    /// # Arguments
+    /// * `series_id` - Identifiant de la série
+    /// * `since_timestamp` - Timestamp à partir duquel récupérer les nouvelles bougies
+    /// * `provider` - Fournisseur de données en temps réel
+    ///
+    /// # Retourne
+    /// Le résultat de la récupération
+    pub fn fetch_new_candles_from_provider<P: RealtimeDataProvider>(
+        &mut self,
+        series_id: &SeriesId,
+        since_timestamp: i64,
+        provider: &P,
+    ) -> UpdateResult {
+        match provider.fetch_new_candles(series_id, since_timestamp) {
+            Ok(candles) => {
+                if candles.is_empty() {
+                    UpdateResult::NoUpdate
+                } else {
+                    self.merge_candles(series_id, candles)
+                }
+            }
+            Err(e) => UpdateResult::Error(e),
+        }
+    }
+
+    /// Ajuste automatiquement le viewport pour afficher les dernières données
+    ///
+    /// Utile après une mise à jour en temps réel pour suivre les nouvelles bougies.
+    pub fn auto_scroll_to_latest(&mut self) {
+        if let Some(active_series) = self.series_manager.active_series().next() {
+            // Si on est déjà proche de la fin, ajuster pour montrer les nouvelles données
+            if let Some(max_time) = active_series.data.max_timestamp() {
+                let (current_min, current_max) = self.viewport.time_scale().time_range();
+                // Si on est dans les 10% de la fin, ajuster pour suivre
+                let range = current_max - current_min;
+                if max_time > current_max - (range / 10) {
+                    // Ajuster le viewport pour montrer les dernières données
+                    self.viewport.focus_on_recent(&active_series.data, DEFAULT_VISIBLE_CANDLES);
+                }
+            }
+        }
     }
 }

@@ -1,0 +1,10 @@
+{
+  "active_provider": "Binance",
+  "providers": {
+    "Binance": {
+      "provider_type": "Binance",
+      "api_token": "teste",
+      "api_secret": null
+    }
+  }
+}

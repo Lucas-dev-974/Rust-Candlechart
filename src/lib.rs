@@ -71,6 +71,9 @@ pub use finance_chart::{
     // Messages
     ChartMessage, YAxisMessage, XAxisMessage,
     ToolsPanelMessage, SeriesPanelMessage,
+    
+    // Temps réel
+    UpdateResult, BinanceProvider,
 };
 
 // Ré-exporter les types core depuis les sous-modules
@@ -86,6 +89,6 @@ pub use finance_chart::scale::{
 // Ré-exporter Viewport
 pub use finance_chart::viewport::Viewport;
 
-// API simplifiée
-pub use finance_chart::simple::{SimpleChartApp, simple_app};
+// Ré-exporter le trait RealtimeDataProvider (utilisé comme contrainte de type générique)
+pub use finance_chart::realtime::RealtimeDataProvider;
 

@@ -3,8 +3,8 @@
 //! Architecture Elm : émet des messages pour les mutations d'état,
 //! reçoit des références immuables pour le rendu.
 
-use iced::widget::canvas::{Canvas, Frame, Geometry, Program, Action as CanvasAction};
-use iced::{Element, Event, Length, Point, Rectangle};
+use iced::widget::canvas::{Canvas, Frame, Geometry, Program, Action as CanvasAction, Path, Text};
+use iced::{Element, Event, Length, Point, Rectangle, Size, Color};
 use iced::{keyboard, mouse};
 
 use super::render::{
@@ -112,6 +112,55 @@ impl<'a> ChartProgram<'a> {
         }
     }
 
+    /// Dessine le label du prix actuel sur le bord droit (avant la zone Y)
+    fn draw_current_price_label(&self, frame: &mut Frame, candle: &crate::finance_chart::core::Candle) {
+        let viewport = &self.chart_state.viewport;
+        let current_price = candle.close;
+        let y = viewport.price_scale().price_to_y(current_price);
+        
+        // Ne dessiner que si visible
+        if y < 0.0 || y > viewport.height() {
+            return;
+        }
+        
+        // Couleur selon si le prix est haussier ou baissier
+        let is_bullish = candle.close >= candle.open;
+        let bg_color = if is_bullish {
+            Color::from_rgba(0.0, 0.5, 0.0, 1.0) // Vert foncé opaque
+        } else {
+            Color::from_rgba(0.5, 0.0, 0.0, 1.0) // Rouge foncé opaque
+        };
+        
+        // Formater le prix avec 2 décimales
+        let price_label = format!("{:.2}", current_price);
+        
+        let padding_x = 4.0;
+        let padding_y = 2.0;
+        let label_width = 60.0;
+        let label_height = 11.0 + padding_y * 2.0;
+        
+        let width = viewport.width();
+        let label_x = width - label_width - 2.0;
+        let label_y = y - label_height / 2.0;
+        
+        // Fond du label
+        let bg_rect = Path::rectangle(
+            Point::new(label_x, label_y),
+            Size::new(label_width, label_height),
+        );
+        frame.fill(&bg_rect, bg_color);
+        
+        // Texte
+        let text = Text {
+            content: price_label,
+            position: Point::new(label_x + padding_x, label_y + padding_y),
+            color: Color::WHITE,
+            size: iced::Pixels(11.0),
+            ..Text::default()
+        };
+        frame.fill_text(text);
+    }
+
     /// Dessine tous les éléments dessinés (rectangles et lignes horizontales)
     fn draw_all_drawings(&self, frame: &mut Frame) {
         let viewport = &self.chart_state.viewport;
@@ -193,6 +242,8 @@ impl<'a> Program<ChartMessage> for ChartProgram<'a> {
         // Afficher la ligne de prix courant de la première série active
         if let Some(last_candle) = self.chart_state.last_candle() {
             render_current_price_line(&mut frame, &self.chart_state.viewport, last_candle.close, Some(price_style));
+            // Afficher le label du prix actuel sur le bord droit (avant la zone Y)
+            self.draw_current_price_label(&mut frame, last_candle);
         }
 
         // Rendu des dessins (rectangles et lignes)

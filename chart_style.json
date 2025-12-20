@@ -46,5 +46,6 @@
     "g": 0.7,
     "b": 0.7,
     "a": 1.0
-  }
+  },
+  "auto_scroll_enabled": true
 }
