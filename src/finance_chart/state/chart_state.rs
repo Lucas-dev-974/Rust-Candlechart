@@ -169,6 +169,7 @@ impl ChartState {
     ///
     /// # Retourne
     /// Le résultat de la mise à jour
+    #[allow(dead_code)] // API publique pour utilisation future
     pub fn update_from_provider<P: RealtimeDataProvider>(
         &mut self,
         series_id: &SeriesId,
@@ -200,6 +201,7 @@ impl ChartState {
     ///
     /// # Retourne
     /// Le résultat de la synchronisation
+    #[allow(dead_code)] // API publique pour utilisation future
     pub fn sync_from_provider<P: RealtimeDataProvider>(
         &mut self,
         series_id: &SeriesId,
@@ -228,6 +230,7 @@ impl ChartState {
     ///
     /// # Retourne
     /// Le résultat de la récupération
+    #[allow(dead_code)] // API publique pour utilisation future
     pub fn fetch_new_candles_from_provider<P: RealtimeDataProvider>(
         &mut self,
         series_id: &SeriesId,

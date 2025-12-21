@@ -607,3 +607,4 @@ Pour plus d'informations, voir :
 - `docs/PROVIDERS.md` : Documentation sur les providers
 - `examples/realtime_example.rs` : Exemple complet d'utilisation
 
+

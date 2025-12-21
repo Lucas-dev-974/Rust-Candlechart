@@ -615,3 +615,4 @@ Pour plus d'informations, voir :
 - `docs/REALTIME.md` : Documentation sur le système real-time
 - `examples/binance_example.rs` : Exemple complet d'utilisation
 
+

@@ -17,6 +17,7 @@ pub enum ProviderError {
     /// Format de SeriesId invalide
     InvalidSeriesId(String),
     /// Erreur de validation des données
+    #[allow(dead_code)] // Utilisé dans le Display impl et pour validation future
     Validation(String),
     /// Erreur inconnue
     Unknown(String),

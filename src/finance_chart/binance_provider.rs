@@ -38,6 +38,7 @@ pub struct BinanceProvider {
     /// URL de base de l'API (par défaut: API publique Binance)
     base_url: String,
     /// Token API optionnel pour l'authentification
+    #[allow(dead_code)] // Stocké pour usage futur (authentification API)
     api_token: Option<String>,
 }
 
@@ -205,6 +206,7 @@ impl BinanceProvider {
     /// - Comme `Handle::block_on()` panique si appelé depuis un contexte async, on crée
     ///   toujours un nouveau runtime pour éviter ce risque
     /// - Cette approche est plus sûre même si légèrement moins efficace
+    #[allow(dead_code)] // Utilisé dans les implémentations de RealtimeDataProvider (fetch_latest_candle, fetch_new_candles)
     fn run_async<F, T>(&self, future: F) -> Result<T, ProviderError>
     where
         F: std::future::Future<Output = Result<T, ProviderError>>,

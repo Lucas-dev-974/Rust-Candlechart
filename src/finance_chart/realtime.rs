@@ -62,6 +62,7 @@ pub use error::ProviderError;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UpdateResult {
     /// Aucune mise à jour nécessaire
+    #[allow(dead_code)] // Utilisé dans les méthodes update_from_provider, sync_from_provider, fetch_new_candles_from_provider
     NoUpdate,
     /// Nouvelle bougie ajoutée
     NewCandle,
@@ -95,8 +96,9 @@ pub enum UpdateResult {
 ///         // Appel API pour récupérer les nouvelles bougies depuis un timestamp
 ///         Ok(self.api_client.get_candles_since(series_id, since_timestamp)?)
 ///     }
-/// }
+/// } 
 /// ```
+#[allow(dead_code)] // Trait public pour implémentation par les providers
 pub trait RealtimeDataProvider {
     /// Récupère la dernière bougie pour une série donnée
     ///

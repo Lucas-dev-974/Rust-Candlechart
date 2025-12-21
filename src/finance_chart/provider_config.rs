@@ -56,6 +56,7 @@ impl ProviderConfig {
         }
     }
 
+    #[allow(dead_code)] // API publique pour création de configurations
     pub fn with_token(provider_type: ProviderType, api_token: String) -> Self {
         Self {
             provider_type,
@@ -119,6 +120,7 @@ impl ProviderConfigManager {
     }
 
     /// Met à jour la configuration d'un provider
+    #[allow(dead_code)] // API publique pour gestion avancée des configurations
     pub fn update_provider_config(&mut self, provider_type: ProviderType, config: ProviderConfig) {
         self.providers.insert(provider_type, config);
     }
@@ -132,6 +134,7 @@ impl ProviderConfigManager {
     }
 
     /// Met à jour la clé secrète API d'un provider
+    #[allow(dead_code)] // API publique pour gestion avancée des configurations
     pub fn set_provider_secret(&mut self, provider_type: ProviderType, secret: Option<String>) {
         let config = self.providers.entry(provider_type).or_insert_with(|| {
             ProviderConfig::new(provider_type)
@@ -145,6 +148,7 @@ impl ProviderConfigManager {
     }
 
     /// Retourne tous les providers disponibles
+    #[allow(dead_code)] // API publique pour listing des providers
     pub fn available_providers(&self) -> Vec<ProviderType> {
         ProviderType::all()
     }
