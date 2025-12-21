@@ -1,7 +1,7 @@
 mod finance_chart;
 
 use iced::widget::{button, column, container, row, text, scrollable, Space, checkbox, text_input};
-use iced::{Element, Length, Task, Theme, Color, Size, window, Subscription};
+use iced::{Element, Length, Task, Theme, Color, Size, window, Subscription, exit};
 use std::time::Duration;
 use std::collections::HashMap;
 use finance_chart::{
@@ -463,14 +463,9 @@ impl ChartApp {
                         self.editing_provider_token.clear();
                     }
                     Some(WindowType::Main) => {
-                        self.windows.remove_id(WindowType::Main);
-                        // Fermer les autres fenêtres si elles sont ouvertes
-                        if let Some(settings_id) = self.windows.get_id(WindowType::Settings) {
-                            return window::close(settings_id);
-                        }
-                        if let Some(provider_id) = self.windows.get_id(WindowType::ProviderConfig) {
-                            return window::close(provider_id);
-                        }
+                        // Quitter l'application quand la fenêtre principale est fermée
+                        // exit() fermera automatiquement toutes les fenêtres
+                        return exit();
                     }
                     None => {}
                 }
