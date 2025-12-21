@@ -123,6 +123,26 @@ impl BinanceProvider {
         self.fetch_new_candles_async(series_id, 0).await
     }
 
+    /// Récupère les bougies dans une plage temporelle spécifique de manière asynchrone (pour Iced Tasks)
+    ///
+    /// Cette méthode permet de récupérer les bougies manquantes pour combler un gap.
+    ///
+    /// # Arguments
+    /// * `series_id` - Identifiant de la série
+    /// * `start_timestamp` - Timestamp de début (en secondes)
+    /// * `end_timestamp` - Timestamp de fin (en secondes)
+    pub async fn fetch_candles_in_range_async(
+        &self,
+        series_id: &SeriesId,
+        start_timestamp: i64,
+        end_timestamp: i64,
+    ) -> Result<Vec<Candle>, ProviderError> {
+        let (symbol, interval) = self.parse_series_id(series_id)?;
+        let start_time_ms = start_timestamp * 1000;
+        let end_time_ms = end_timestamp * 1000;
+        self.fetch_klines(&symbol, &interval, Some(start_time_ms), Some(end_time_ms), Some(1000)).await
+    }
+
 
     /// Extrait le symbole et l'intervalle depuis un SeriesId
     ///

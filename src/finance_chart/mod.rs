@@ -33,7 +33,7 @@ pub mod provider_config;
 
 pub use state::ChartState;
 pub use widget::chart;
-pub use data_loader::{load_from_json, load_all_from_directory};
+pub use data_loader::{load_from_json, load_all_from_directory, save_to_json};
 pub use axis_canvas::{x_axis, y_axis, X_AXIS_HEIGHT, Y_AXIS_WIDTH};
 pub use tools_canvas::ToolsState;
 pub use tools_panel_canvas::{tools_panel, TOOLS_PANEL_WIDTH};

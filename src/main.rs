@@ -5,7 +5,7 @@ use iced::{Element, Length, Task, Theme, Color, Size, window, Subscription};
 use std::time::Duration;
 use std::collections::HashMap;
 use finance_chart::{
-    chart, load_all_from_directory, ChartState, x_axis, y_axis,
+    chart, load_all_from_directory, save_to_json, ChartState, x_axis, y_axis,
     X_AXIS_HEIGHT, Y_AXIS_WIDTH, ToolsState, tools_panel, TOOLS_PANEL_WIDTH,
     series_select_box,
     SettingsState, ChartStyle,
@@ -52,6 +52,28 @@ fn calculate_candles_back_timestamp(interval: &str, count: usize) -> i64 {
         _ => 3600, // Défaut: 1h
     };
     (count * seconds_per_candle) as i64
+}
+
+/// Convertit un intervalle en secondes
+fn interval_to_seconds(interval: &str) -> i64 {
+    match interval {
+        "1m" => 60,
+        "3m" => 180,
+        "5m" => 300,
+        "15m" => 900,
+        "30m" => 1800,
+        "1h" => 3600,
+        "2h" => 7200,
+        "4h" => 14400,
+        "6h" => 21600,
+        "8h" => 28800,
+        "12h" => 43200,
+        "1d" => 86400,
+        "3d" => 259200,
+        "1w" => 604800,
+        "1M" => 2592000, // Approximation (30 jours)
+        _ => 3600, // Défaut: 1h
+    }
 }
 
 fn main() -> iced::Result {
@@ -191,6 +213,9 @@ enum Message {
     RealtimeUpdateComplete(Vec<(SeriesId, String, Result<Option<Candle>, String>)>),
     CompleteMissingData,
     CompleteMissingDataComplete(Vec<(SeriesId, String, Result<Vec<Candle>, String>)>),
+    CompleteGaps,
+    CompleteGapsComplete(Vec<(SeriesId, String, (i64, i64), Result<Vec<Candle>, String>)>),
+    SaveSeriesComplete(Vec<(String, Result<(), String>)>),
     
     // === Messages de configuration des providers ===
     OpenProviderConfig,
@@ -602,7 +627,30 @@ impl ChartApp {
             
             Message::CompleteMissingDataComplete(results) => {
                 println!("📥 CompleteMissingDataComplete: {} résultats reçus", results.len());
-                self.apply_complete_missing_data_results(results);
+                self.apply_complete_missing_data_results(results)
+            }
+            
+            Message::CompleteGaps => {
+                self.complete_gaps()
+            }
+            
+            Message::CompleteGapsComplete(results) => {
+                println!("📥 CompleteGapsComplete: {} résultats reçus", results.len());
+                self.apply_complete_gaps_results(results)
+            }
+            
+            Message::SaveSeriesComplete(results) => {
+                for (series_name, result) in results {
+                    match result {
+                        Ok(()) => {
+                            println!("  ✅ {}: Sauvegardé avec succès", series_name);
+                        }
+                        Err(e) => {
+                            eprintln!("  ❌ {}: Erreur lors de la sauvegarde - {}", series_name, e);
+                        }
+                    }
+                }
+                println!("✅ Sauvegarde des séries terminée");
                 Task::none()
             }
             
@@ -716,7 +764,7 @@ impl ChartApp {
     }
     
     /// Applique les résultats de la complétion des données manquantes
-    fn apply_complete_missing_data_results(&mut self, results: Vec<(SeriesId, String, Result<Vec<Candle>, String>)>) {
+    fn apply_complete_missing_data_results(&mut self, results: Vec<(SeriesId, String, Result<Vec<Candle>, String>)>) -> Task<Message> {
         let mut has_updates = false;
         
         for (series_id, series_name, result) in results {
@@ -743,11 +791,202 @@ impl ChartApp {
             }
         }
         
+        // Après avoir complété les données manquantes, détecter et compléter les gaps internes
+        if has_updates {
+            println!("🔍 Vérification des gaps dans les données...");
+            return self.complete_gaps();
+        }
+        
         // Ajuster le viewport une seule fois à la fin (si auto-scroll activé)
         if has_updates && self.chart_style.auto_scroll_enabled {
             self.chart_state.auto_scroll_to_latest();
         }
         println!("✅ Complétion terminée");
+        Task::none()
+    }
+
+    /// Détecte et complète les gaps dans toutes les séries de manière asynchrone
+    /// 
+    /// Utilise Iced Tasks pour faire les requêtes en parallèle sans bloquer le thread principal.
+    fn complete_gaps(&mut self) -> Task<Message> {
+        // Collecter toutes les informations nécessaires
+        let mut gap_requests: Vec<(SeriesId, String, (i64, i64))> = Vec::new();
+        
+        for series in self.chart_state.series_manager.all_series() {
+            let series_id = series.id.clone();
+            let series_name = series.full_name();
+            
+            // Vérifier si le format est compatible avec Binance (SYMBOL_INTERVAL)
+            if !series_name.contains('_') {
+                continue;
+            }
+            
+            // Extraire l'intervalle depuis le nom de la série
+            let interval_str = series_name.split('_').last().unwrap_or("1h");
+            let interval_seconds = interval_to_seconds(interval_str);
+            
+            // Détecter les gaps
+            let gaps = series.data.detect_gaps(interval_seconds);
+            
+            if !gaps.is_empty() {
+                println!("  🔍 {}: {} gap(s) détecté(s)", series_name, gaps.len());
+                // Ajouter chaque gap comme une requête séparée
+                for gap in gaps {
+                    gap_requests.push((series_id.clone(), series_name.clone(), gap));
+                }
+            }
+        }
+        
+        if gap_requests.is_empty() {
+            println!("  ✅ Aucun gap détecté");
+            return Task::none();
+        }
+        
+        // Cloner le provider pour l'utiliser dans la Task async
+        let provider = self.binance_provider.clone();
+        
+        // Créer une Task async qui fait toutes les requêtes en parallèle
+        println!("🚀 Démarrage de la complétion des gaps pour {} gap(s)", gap_requests.len());
+        Task::perform(
+            async move {
+                use futures::future::join_all;
+                
+                // Créer un vecteur de futures pour toutes les requêtes
+                let futures: Vec<_> = gap_requests
+                    .into_iter()
+                    .map(|(series_id, series_name, (gap_start, gap_end))| {
+                        let provider = provider.clone();
+                        let series_id_clone = series_id.clone();
+                        let series_name_clone = series_name.clone();
+                        
+                        async move {
+                            println!("  📥 {}: Complétion du gap de {} à {}", series_name_clone, gap_start, gap_end);
+                            let result = provider.fetch_candles_in_range_async(&series_id_clone, gap_start, gap_end)
+                                .await
+                                .map_err(|e| e.to_string());
+                            (series_id, series_name_clone, (gap_start, gap_end), result)
+                        }
+                    })
+                    .collect();
+                
+                // Exécuter toutes les requêtes en parallèle
+                let results = join_all(futures).await;
+                println!("✅ Toutes les requêtes de complétion des gaps terminées");
+                results
+            },
+            Message::CompleteGapsComplete,
+        )
+    }
+    
+    /// Applique les résultats de la complétion des gaps
+    fn apply_complete_gaps_results(&mut self, results: Vec<(SeriesId, String, (i64, i64), Result<Vec<Candle>, String>)>) -> Task<Message> {
+        let mut has_updates = false;
+        let mut updated_series: std::collections::HashSet<SeriesId> = std::collections::HashSet::new();
+        
+        for (series_id, series_name, (gap_start, gap_end), result) in results {
+            match result {
+                Ok(candles) => {
+                    if candles.is_empty() {
+                        println!("    ℹ️  {}: Aucune bougie trouvée pour le gap de {} à {}", series_name, gap_start, gap_end);
+                    } else {
+                        match self.chart_state.merge_candles(&series_id, candles) {
+                            UpdateResult::MultipleCandlesAdded(n) => {
+                                println!("    ✅ {}: {} bougies ajoutées pour combler le gap de {} à {}", series_name, n, gap_start, gap_end);
+                                has_updates = true;
+                                updated_series.insert(series_id);
+                            }
+                            UpdateResult::Error(e) => {
+                                println!("    ❌ {}: Erreur lors de la fusion - {}", series_name, e);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("    ❌ {}: Erreur lors de la récupération du gap de {} à {} - {}", series_name, gap_start, gap_end, e);
+                }
+            }
+        }
+        
+        // Lancer la sauvegarde de manière asynchrone pour ne pas bloquer l'UI
+        if !updated_series.is_empty() {
+            println!("💾 Lancement de la sauvegarde asynchrone des séries mises à jour...");
+            
+            // Collecter les données à sauvegarder (cloner ce qui est nécessaire)
+            let save_requests: Vec<(String, String, String, Vec<finance_chart::core::Candle>)> = updated_series
+                .iter()
+                .filter_map(|series_id| {
+                    self.chart_state.series_manager.get_series(series_id)
+                        .map(|series| {
+                            let file_path = format!("data/{}.json", series_id.name);
+                            let symbol = series.symbol.clone();
+                            let interval = series.interval.clone();
+                            // Cloner toutes les bougies
+                            let candles: Vec<finance_chart::core::Candle> = series.data.all_candles().to_vec();
+                            (file_path, symbol, interval, candles)
+                        })
+                })
+                .collect();
+            
+            if !save_requests.is_empty() {
+                // Lancer la sauvegarde dans un thread dédié
+                return Task::perform(
+                    async move {
+                        use futures::future::join_all;
+                        
+                        let futures: Vec<_> = save_requests
+                            .into_iter()
+                            .map(|(file_path, symbol, interval, candles)| {
+                                let file_path_clone = file_path.clone();
+                                async move {
+                                    let series_name = std::path::Path::new(&file_path_clone)
+                                        .file_stem()
+                                        .and_then(|s| s.to_str())
+                                        .unwrap_or(&file_path_clone)
+                                        .to_string();
+                                    
+                                    let result = tokio::task::spawn_blocking(move || {
+                                        // Utiliser save_to_json en créant une SeriesData temporaire
+                                        use finance_chart::{core::{SeriesData, SeriesId, TimeSeries}, data_loader::save_to_json};
+                                        
+                                        let series_id = SeriesId::new(file_path_clone.clone());
+                                        let timeseries = {
+                                            let mut ts = TimeSeries::new();
+                                            for candle in candles {
+                                                let _ = ts.push(candle);
+                                            }
+                                            ts
+                                        };
+                                        let series_data = SeriesData::new(series_id, symbol, interval, timeseries);
+                                        
+                                        save_to_json(&series_data, &file_path_clone)
+                                            .map_err(|e| e.to_string())
+                                    }).await;
+                                    
+                                    match result {
+                                        Ok(Ok(())) => (series_name, Ok(())),
+                                        Ok(Err(e)) => (series_name, Err(e)),
+                                        Err(e) => (series_name, Err(format!("Erreur de thread: {}", e))),
+                                    }
+                                }
+                            })
+                            .collect();
+                        
+                        let results = join_all(futures).await;
+                        
+                        results
+                    },
+                    Message::SaveSeriesComplete,
+                );
+            }
+        }
+        
+        // Ajuster le viewport une seule fois à la fin (si auto-scroll activé)
+        if has_updates && self.chart_style.auto_scroll_enabled {
+            self.chart_state.auto_scroll_to_latest();
+        }
+        println!("✅ Complétion des gaps terminée");
+        Task::none()
     }
     
     /// Met à jour les données en temps réel pour les séries actives

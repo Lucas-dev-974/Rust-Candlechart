@@ -1,8 +1,8 @@
-//! Module de chargement des données financières depuis des fichiers JSON
+//! Module de chargement et sauvegarde des données financières depuis/vers des fichiers JSON
 //!
 //! Supporte le format Binance klines avec timestamps en millisecondes.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
@@ -10,7 +10,7 @@ use std::path::Path;
 use super::core::{Candle, TimeSeries, SeriesData, SeriesId};
 
 /// Structure JSON pour une bougie Binance
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct JsonKline {
     /// Timestamp d'ouverture en millisecondes
     open_time: i64,
@@ -28,7 +28,7 @@ struct JsonKline {
 }
 
 /// Structure JSON pour le fichier complet
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct JsonData {
     /// Symbole de la paire
     symbol: String,
@@ -258,6 +258,72 @@ pub fn load_all_from_directory<P: AsRef<Path>>(dir_path: P) -> Result<Vec<Series
     }
     
     Ok(series_list)
+}
+
+/// Erreur de sauvegarde des données
+#[derive(Debug)]
+pub enum SaveError {
+    /// Erreur d'écriture du fichier
+    FileWrite(std::io::Error),
+    /// Erreur de sérialisation JSON
+    JsonSerialize(serde_json::Error),
+}
+
+impl std::fmt::Display for SaveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SaveError::FileWrite(e) => write!(f, "Erreur d'écriture du fichier: {}", e),
+            SaveError::JsonSerialize(e) => write!(f, "Erreur de sérialisation JSON: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for SaveError {}
+
+/// Sauvegarde une série dans un fichier JSON au format Binance
+///
+/// # Arguments
+/// * `series` - La série à sauvegarder
+/// * `path` - Chemin vers le fichier JSON de destination
+///
+/// # Returns
+/// * `Ok(())` - Sauvegarde réussie
+/// * `Err(SaveError)` - Erreur de sauvegarde
+///
+/// # Example
+/// ```ignore
+/// save_to_json(&series, "data/BTCUSDT_1h.json")?;
+/// ```
+pub fn save_to_json<P: AsRef<Path>>(series: &SeriesData, path: P) -> Result<(), SaveError> {
+    // Convertir les bougies en format JSON
+    let klines: Vec<JsonKline> = series.data.all_candles()
+        .iter()
+        .map(|candle| JsonKline {
+            open_time: candle.timestamp * 1000, // Convertir secondes → millisecondes
+            open: candle.open,
+            high: candle.high,
+            low: candle.low,
+            close: candle.close,
+            _volume: 0.0, // Volume non utilisé
+        })
+        .collect();
+
+    // Créer la structure JSON complète
+    let json_data = JsonData {
+        symbol: series.symbol.clone(),
+        interval: series.interval.clone(),
+        klines,
+    };
+
+    // Sérialiser en JSON avec indentation
+    let json = serde_json::to_string_pretty(&json_data)
+        .map_err(SaveError::JsonSerialize)?;
+
+    // Écrire dans le fichier
+    std::fs::write(&path, json)
+        .map_err(SaveError::FileWrite)?;
+
+    Ok(())
 }
 
 #[cfg(test)]

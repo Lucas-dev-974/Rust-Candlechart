@@ -291,6 +291,11 @@ impl TimeSeries {
         result
     }
 
+    /// Retourne toutes les bougies de la série
+    pub fn all_candles(&self) -> &[Candle] {
+        &self.candles
+    }
+
     /// Retourne les bougies visibles dans une plage de timestamps
     /// 
     /// Utilise une recherche binaire pour efficacité avec grandes séries
@@ -313,6 +318,44 @@ impl TimeSeries {
             .unwrap_or_else(|idx| idx);
 
         &self.candles[start_idx.min(self.candles.len())..end_idx.min(self.candles.len())]
+    }
+
+    /// Détecte les gaps dans les données selon l'intervalle attendu
+    /// 
+    /// # Arguments
+    /// * `expected_interval_seconds` - L'intervalle attendu entre deux bougies consécutives (en secondes)
+    /// 
+    /// # Retourne
+    /// Un vecteur de tuples (start_timestamp, end_timestamp) représentant les gaps détectés.
+    /// Un gap est détecté si l'intervalle entre deux bougies consécutives est supérieur à 1.5 fois l'intervalle attendu.
+    pub fn detect_gaps(&self, expected_interval_seconds: i64) -> Vec<(i64, i64)> {
+        if self.candles.len() < 2 {
+            return Vec::new();
+        }
+
+        let mut gaps = Vec::new();
+        let threshold = (expected_interval_seconds as f64 * 1.5) as i64;
+
+        for i in 0..(self.candles.len() - 1) {
+            let current_ts = self.candles[i].timestamp;
+            let next_ts = self.candles[i + 1].timestamp;
+            let actual_interval = next_ts - current_ts;
+
+            // Si l'intervalle réel est significativement plus grand que l'intervalle attendu, c'est un gap
+            if actual_interval > threshold {
+                // Le gap commence juste après la bougie actuelle et se termine juste avant la bougie suivante
+                // On ajoute l'intervalle attendu pour obtenir le timestamp de début du gap
+                let gap_start = current_ts + expected_interval_seconds;
+                let gap_end = next_ts - expected_interval_seconds;
+                
+                // S'assurer que gap_start < gap_end
+                if gap_start < gap_end {
+                    gaps.push((gap_start, gap_end));
+                }
+            }
+        }
+
+        gaps
     }
 }
 
