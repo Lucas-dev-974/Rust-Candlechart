@@ -216,6 +216,8 @@ enum Message {
     CompleteGaps,
     CompleteGapsComplete(Vec<(SeriesId, String, (i64, i64), Result<Vec<Candle>, String>)>),
     SaveSeriesComplete(Vec<(String, Result<(), String>)>),
+    LoadSeriesFromDirectory,
+    LoadSeriesFromDirectoryComplete(Result<Vec<finance_chart::core::SeriesData>, String>),
     
     // === Messages de configuration des providers ===
     OpenProviderConfig,
@@ -228,46 +230,10 @@ enum Message {
 
 impl ChartApp {
     fn new() -> (Self, Task<Message>) {
-        // Charger toutes les séries depuis le dossier data
-        let mut chart_state = ChartState::new(MAIN_WINDOW_WIDTH, MAIN_WINDOW_HEIGHT);
+        // Créer l'état initial vide - les données seront chargées de manière asynchrone
+        let chart_state = ChartState::new(MAIN_WINDOW_WIDTH, MAIN_WINDOW_HEIGHT);
         
-        match load_all_from_directory("data") {
-            Ok(series_list) => {
-                println!("✅ {} série(s) trouvée(s) dans le dossier data", series_list.len());
-                for series in series_list {
-                    let series_name = series.full_name();
-                    println!(
-                        "  📊 {}: {} bougies ({} - {})",
-                        series_name,
-                        series.data.len(),
-                        series.symbol,
-                        series.interval
-                    );
-                    chart_state.add_series(series);
-                }
-                if chart_state.series_manager.total_count() == 0 {
-                    eprintln!("⚠️ Aucune série chargée. Vérifiez que le dossier 'data' contient des fichiers JSON.");
-                }
-            }
-            Err(e) => {
-                eprintln!("❌ Erreur lors du chargement des séries depuis 'data': {}", e);
-                eprintln!("   Tentative de chargement du fichier par défaut: {}", DATA_FILE);
-                // Fallback: essayer de charger le fichier par défaut
-                match finance_chart::load_from_json(DATA_FILE) {
-                    Ok(series) => {
-                        println!("✅ Série chargée: {} bougies", series.data.len());
-                        chart_state.add_series(series);
-                    }
-                    Err(e2) => {
-                        eprintln!("❌ Erreur de chargement: {}", e2);
-                        eprintln!("   Aucune donnée chargée.");
-                        eprintln!("   Détails: {}", e2);
-                    }
-                }
-            }
-        }
-        
-        // Créer l'état des outils et charger les dessins sauvegardés
+        // Créer l'état des outils (dessins chargés de manière synchrone car rapide)
         let mut tools_state = ToolsState::default();
         match tools_state.load_from_file("drawings.json") {
             Ok(()) => {
@@ -288,7 +254,7 @@ impl ChartApp {
             }
         }
 
-        // Charger le style
+        // Charger le style (rapide, synchrone)
         let chart_style = match ChartStyle::load_from_file("chart_style.json") {
             Ok(style) => {
                 println!("✅ Style chargé depuis chart_style.json");
@@ -297,7 +263,7 @@ impl ChartApp {
             Err(_) => ChartStyle::default(),
         };
 
-        // Charger la configuration des providers
+        // Charger la configuration des providers (rapide, synchrone)
         let provider_config = match ProviderConfigManager::load_from_file("provider_config.json") {
             Ok(config) => {
                 println!("✅ Configuration des providers chargée depuis provider_config.json");
@@ -315,22 +281,47 @@ impl ChartApp {
         } else {
             BinanceProvider::new()
         };
-        
-        // Compléter les données manquantes depuis Binance
-        let complete_task = Task::perform(
-            async {
-                // Attendre un peu pour que l'UI soit prête
-                tokio::time::sleep(Duration::from_millis(500)).await;
-                Message::CompleteMissingData
-            },
-            |_| Message::CompleteMissingData,
-        );
 
-        // Ouvrir la fenêtre principale
+        // Ouvrir la fenêtre principale IMMÉDIATEMENT
         let (main_id, open_task) = window::open(window::Settings {
             size: Size::new(MAIN_WINDOW_WIDTH, MAIN_WINDOW_HEIGHT),
             ..Default::default()
         });
+
+        // Créer une Task pour charger les séries de manière asynchrone
+        let load_series_task = Task::perform(
+            async {
+                use std::path::Path;
+                
+                // Charger les séries dans un thread dédié pour ne pas bloquer l'UI
+                tokio::task::spawn_blocking(move || {
+                    match load_all_from_directory("data") {
+                        Ok(series_list) => {
+                            println!("✅ {} série(s) trouvée(s) dans le dossier data", series_list.len());
+                            Ok(series_list)
+                        }
+                        Err(e) => {
+                            eprintln!("❌ Erreur lors du chargement des séries depuis 'data': {}", e);
+                            eprintln!("   Tentative de chargement du fichier par défaut: {}", DATA_FILE);
+                            // Fallback: essayer de charger le fichier par défaut
+                            match finance_chart::load_from_json(DATA_FILE) {
+                                Ok(series) => {
+                                    println!("✅ Série chargée: {} bougies", series.data.len());
+                                    Ok(vec![series])
+                                }
+                                Err(e2) => {
+                                    eprintln!("❌ Erreur de chargement: {}", e2);
+                                    Err(format!("Erreur: {}", e2))
+                                }
+                            }
+                        }
+                    }
+                })
+                .await
+                .unwrap_or_else(|e| Err(format!("Erreur de thread: {}", e)))
+            },
+            Message::LoadSeriesFromDirectoryComplete,
+        );
 
         (
             Self { 
@@ -349,7 +340,7 @@ impl ChartApp {
             },
             Task::batch(vec![
                 open_task.map(Message::MainWindowOpened),
-                complete_task,
+                load_series_task,
             ]),
         )
     }
@@ -432,6 +423,45 @@ impl ChartApp {
             
             // === Gestion des fenêtres ===
             Message::MainWindowOpened(_id) => Task::none(),
+            
+            Message::LoadSeriesFromDirectory => Task::none(),
+            
+            Message::LoadSeriesFromDirectoryComplete(result) => {
+                match result {
+                    Ok(series_list) => {
+                        for series in series_list {
+                            let series_name = series.full_name();
+                            println!(
+                                "  📊 {}: {} bougies ({} - {})",
+                                series_name,
+                                series.data.len(),
+                                series.symbol,
+                                series.interval
+                            );
+                            self.chart_state.add_series(series);
+                        }
+                        if self.chart_state.series_manager.total_count() == 0 {
+                            eprintln!("⚠️ Aucune série chargée. Vérifiez que le dossier 'data' contient des fichiers JSON.");
+                            return Task::none();
+                        }
+                        
+                        // Après avoir chargé les séries, compléter les données manquantes
+                        println!("🔄 Démarrage de la complétion des données manquantes...");
+                        return Task::perform(
+                            async {
+                                // Attendre un peu pour que l'UI soit prête
+                                tokio::time::sleep(Duration::from_millis(300)).await;
+                                Message::CompleteMissingData
+                            },
+                            |_| Message::CompleteMissingData,
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Erreur lors du chargement des séries: {}", e);
+                    }
+                }
+                Task::none()
+            }
             
             Message::OpenSettings => {
                 if self.windows.is_open(WindowType::Settings) {
