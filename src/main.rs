@@ -3,6 +3,7 @@ mod app;
 
 use iced::{Task, Size, window, exit, Element};
 use std::time::Duration;
+use std::sync::Arc;
 use finance_chart::{
     YAxisMessage, XAxisMessage, ToolsPanelMessage, SeriesPanelMessage,
     BinanceProvider,
@@ -204,9 +205,9 @@ impl ChartApp {
                     println!("✅ Configuration des providers sauvegardée dans provider_config.json");
                 }
                 
-                // Recréer le provider avec la nouvelle configuration
+                // Recréer le provider avec la nouvelle configuration (Arc pour partage efficace)
                 if let Some(config) = self.provider_config.active_config() {
-                    self.binance_provider = BinanceProvider::with_token(config.api_token.clone());
+                    self.binance_provider = Arc::new(BinanceProvider::with_token(config.api_token.clone()));
                     println!("✅ Provider recréé avec la nouvelle configuration");
                 }
                 
@@ -222,9 +223,9 @@ impl ChartApp {
             Message::SelectProvider(provider_type) => {
                 self.provider_config.set_active_provider(provider_type);
                 
-                // Recréer le provider avec la configuration du nouveau provider actif
+                // Recréer le provider avec la configuration du nouveau provider actif (Arc pour partage efficace)
                 if let Some(config) = self.provider_config.active_config() {
-                    self.binance_provider = BinanceProvider::with_token(config.api_token.clone());
+                    self.binance_provider = Arc::new(BinanceProvider::with_token(config.api_token.clone()));
                     println!("✅ Provider changé et recréé");
                 }
                 

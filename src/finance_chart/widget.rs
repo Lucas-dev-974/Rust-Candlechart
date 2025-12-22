@@ -13,7 +13,7 @@ use super::render::{
     draw_rectangle, draw_preview_rectangle,
     draw_horizontal_line, draw_hline_preview, hit_test_hline,
     grid::GridStyle, current_price::CurrentPriceStyle,
-    crosshair::CrosshairStyle,
+    crosshair::CrosshairStyle, tooltip::TooltipStyle,
 };
 use super::interaction::{hit_test_rectangles, cursor_for_edit_mode};
 use super::state::ChartState;
@@ -58,25 +58,6 @@ impl<'a> ChartProgram<'a> {
     fn get_series_colors(&self, series_idx: usize, series_id: &super::core::SeriesId) -> super::render::candlestick::CandleColors {
         use iced::Color;
         
-        // Palette de couleurs pour différentes séries
-        let color_palettes = [
-            // Palette 1: Vert/Rouge classique
-            (Color::from_rgb(0.0, 0.8, 0.0), Color::from_rgb(0.8, 0.0, 0.0), Color::from_rgb(0.5, 0.5, 0.5)),
-            // Palette 2: Bleu/Orange
-            (Color::from_rgb(0.2, 0.6, 1.0), Color::from_rgb(1.0, 0.6, 0.2), Color::from_rgb(0.6, 0.6, 0.6)),
-            // Palette 3: Cyan/Magenta
-            (Color::from_rgb(0.0, 0.8, 0.8), Color::from_rgb(0.8, 0.0, 0.8), Color::from_rgb(0.5, 0.5, 0.5)),
-            // Palette 4: Jaune/Violet
-            (Color::from_rgb(0.8, 0.8, 0.0), Color::from_rgb(0.6, 0.0, 0.8), Color::from_rgb(0.5, 0.5, 0.5)),
-            // Palette 5: Vert clair/Rouge foncé
-            (Color::from_rgb(0.4, 1.0, 0.4), Color::from_rgb(0.6, 0.0, 0.0), Color::from_rgb(0.5, 0.5, 0.5)),
-        ];
-        
-        // Utiliser la palette par défaut si on dépasse
-        let palette = color_palettes.get(series_idx % color_palettes.len())
-            .copied()
-            .unwrap_or(color_palettes[0]);
-        
         // Vérifier si la série a une couleur personnalisée
         if let Some(series_data) = self.chart_state.series_manager.get_series(series_id) {
             if let Some(custom_color) = series_data.color {
@@ -107,11 +88,52 @@ impl<'a> ChartProgram<'a> {
             }
         }
         
-        // Utiliser la palette par index
-        super::render::candlestick::CandleColors {
-            bullish: palette.0,
-            bearish: palette.1,
-            wick: palette.2,
+        // Utiliser les couleurs du style par défaut pour la première série
+        // Pour les séries supplémentaires, utiliser des variantes des couleurs du style
+        if series_idx == 0 {
+            // Première série : utiliser directement les couleurs du style
+            super::render::candlestick::CandleColors {
+                bullish: self.chart_style.bullish_color.to_iced(),
+                bearish: self.chart_style.bearish_color.to_iced(),
+                wick: self.chart_style.wick_color.to_iced(),
+            }
+        } else {
+            // Séries supplémentaires : créer des variantes des couleurs du style
+            let base_bullish = self.chart_style.bullish_color.to_iced();
+            let base_bearish = self.chart_style.bearish_color.to_iced();
+            let base_wick = self.chart_style.wick_color.to_iced();
+            
+            // Créer des variantes en fonction de l'index de la série
+            let hue_shift = (series_idx as f32) * 0.15; // Décalage de teinte
+            
+            // Pour les séries supplémentaires, on peut modifier légèrement les couleurs
+            // Ici on utilise une approche simple : assombrir/éclaircir selon l'index
+            let factor = 1.0 - (series_idx as f32 * 0.1).min(0.3);
+            
+            let bullish = Color::from_rgba(
+                (base_bullish.r * factor).min(1.0),
+                (base_bullish.g * factor).min(1.0),
+                (base_bullish.b * factor).min(1.0),
+                base_bullish.a,
+            );
+            let bearish = Color::from_rgba(
+                (base_bearish.r * factor).min(1.0),
+                (base_bearish.g * factor).min(1.0),
+                (base_bearish.b * factor).min(1.0),
+                base_bearish.a,
+            );
+            let wick = Color::from_rgba(
+                (base_wick.r * factor).min(1.0),
+                (base_wick.g * factor).min(1.0),
+                (base_wick.b * factor).min(1.0),
+                base_wick.a,
+            );
+            
+            super::render::candlestick::CandleColors {
+                bullish,
+                bearish,
+                wick,
+            }
         }
     }
 
@@ -127,12 +149,20 @@ impl<'a> ChartProgram<'a> {
         }
         
         // Couleur selon si le prix est haussier ou baissier
+        // Utiliser les couleurs du style, mais assombries pour le fond du label
         let is_bullish = candle.close >= candle.open;
-        let bg_color = if is_bullish {
-            Color::from_rgba(0.0, 0.5, 0.0, 1.0) // Vert foncé opaque
+        let base_color = if is_bullish {
+            self.chart_style.bullish_color.to_iced()
         } else {
-            Color::from_rgba(0.5, 0.0, 0.0, 1.0) // Rouge foncé opaque
+            self.chart_style.bearish_color.to_iced()
         };
+        // Assombrir la couleur pour le fond du label
+        let bg_color = Color::from_rgba(
+            (base_color.r * 0.6).min(1.0),
+            (base_color.g * 0.6).min(1.0),
+            (base_color.b * 0.6).min(1.0),
+            1.0, // Opacité complète pour le fond
+        );
         
         // Formater le prix avec 2 décimales
         let price_label = format!("{:.2}", current_price);
@@ -153,11 +183,11 @@ impl<'a> ChartProgram<'a> {
         );
         frame.fill(&bg_rect, bg_color);
         
-        // Texte
+        // Texte - utiliser la couleur du style
         let text = Text {
             content: price_label,
             position: Point::new(label_x + padding_x, label_y + padding_y),
-            color: Color::WHITE,
+            color: self.chart_style.text_color.to_iced(),
             size: iced::Pixels(11.0),
             ..Text::default()
         };
@@ -268,7 +298,17 @@ impl<'a> Program<ChartMessage> for ChartProgram<'a> {
                     // Chercher dans toutes les séries actives
                     for (_, candles) in visible_series.iter() {
                         if let Some(candle) = find_candle_at_position(pos.x, candles, &self.chart_state.viewport) {
-                            render_tooltip(&mut frame, candle, pos, &self.chart_state.viewport, None);
+                            // Utiliser les couleurs du style pour le tooltip
+                            let tooltip_style = TooltipStyle {
+                                bg_color: Color::from_rgba(0.1, 0.1, 0.12, 0.95), // Fond sombre
+                                border_color: Color::from_rgba(0.3, 0.3, 0.35, 1.0), // Bordure
+                                text_color: self.chart_style.text_color.to_iced(),
+                                bullish_color: self.chart_style.bullish_color.to_iced(),
+                                bearish_color: self.chart_style.bearish_color.to_iced(),
+                                text_size: 11.0,
+                                padding: 8.0,
+                            };
+                            render_tooltip(&mut frame, candle, pos, &self.chart_state.viewport, Some(tooltip_style));
                             break; // Afficher seulement le premier trouvé
                         }
                     }

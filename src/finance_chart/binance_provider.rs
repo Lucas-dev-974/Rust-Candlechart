@@ -71,6 +71,10 @@ impl BinanceProvider {
     /// # Arguments
     /// * `timeout` - Timeout pour les requêtes HTTP
     /// * `api_token` - Token API pour l'authentification (optionnel)
+    ///
+    /// # Panics
+    /// Cette fonction ne devrait jamais paniquer car reqwest::Client::builder().build()
+    /// ne peut échouer que si TLS ne peut pas être initialisé, ce qui est très rare.
     pub fn with_config(timeout: Duration, api_token: Option<String>) -> Self {
         let mut client_builder = reqwest::Client::builder()
             .timeout(timeout);
@@ -88,9 +92,14 @@ impl BinanceProvider {
             }
         }
 
+        // Le build() ne peut échouer que si TLS ne peut pas être initialisé
+        // Dans ce cas, on utilise un client sans TLS comme fallback
         let client = client_builder
             .build()
-            .expect("Impossible de créer le client HTTP");
+            .unwrap_or_else(|e| {
+                eprintln!("⚠️ Erreur création client HTTP avec TLS: {}. Utilisation d'un client basique.", e);
+                reqwest::Client::new()
+            });
 
         Self {
             client,

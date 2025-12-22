@@ -5,6 +5,7 @@
 use iced::{Task, Theme, window, Subscription, Size};
 use std::time::Duration;
 use std::collections::HashMap;
+use std::sync::Arc;
 use crate::finance_chart::{
     ChartState, ToolsState, SettingsState, ChartStyle,
     BinanceProvider, ProviderConfigManager, ProviderType,
@@ -34,8 +35,8 @@ pub struct ChartApp {
     pub editing_style: Option<ChartStyle>,
     pub editing_color_index: Option<usize>,
     
-    // Mode temps réel
-    pub binance_provider: BinanceProvider,
+    // Mode temps réel - Arc pour partage efficace sans clonage coûteux
+    pub binance_provider: Arc<BinanceProvider>,
     pub realtime_enabled: bool,
     
     // Configuration des providers
@@ -104,12 +105,12 @@ impl ChartApp {
             }
         };
 
-        // Créer le provider Binance avec le token configuré
-        let binance_provider = if let Some(config) = provider_config.active_config() {
+        // Créer le provider Binance avec le token configuré (Arc pour partage efficace)
+        let binance_provider = Arc::new(if let Some(config) = provider_config.active_config() {
             BinanceProvider::with_token(config.api_token.clone())
         } else {
             BinanceProvider::new()
-        };
+        });
 
         // Ouvrir la fenêtre principale IMMÉDIATEMENT
         let (main_id, open_task) = window::open(window::Settings {

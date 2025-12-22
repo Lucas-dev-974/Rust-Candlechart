@@ -11,6 +11,7 @@ pub mod data_loading;
 pub mod realtime;
 pub mod handlers;
 pub mod views;
+pub mod view_styles;
 pub mod panel_state;
 pub mod resize_handle;
 pub mod bottom_panel_sections;

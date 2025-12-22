@@ -74,6 +74,8 @@ pub fn handle_chart_message(app: &mut ChartApp, msg: ChartMessage) {
             }
         }
         ChartMessage::UpdateRectangleEdit { time, price } => {
+            // Note: Le clone est nécessaire pour éviter un conflit d'emprunt
+            // (on emprunte editing en lecture et rectangles en écriture simultanément)
             if let Some(index) = app.tools_state.editing.selected_index {
                 if index < app.tools_state.rectangles.len() {
                     use crate::finance_chart::interaction::apply_edit_update;

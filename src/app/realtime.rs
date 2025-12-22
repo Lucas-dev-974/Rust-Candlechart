@@ -5,6 +5,7 @@
 
 use iced::Task;
 use std::collections::HashSet;
+use std::sync::Arc;
 use crate::finance_chart::{
     UpdateResult,
     core::{SeriesId, Candle},
@@ -16,11 +17,16 @@ use crate::app::{
 };
 
 /// Vérifie si le nom de série est au format Binance (SYMBOL_INTERVAL)
+#[inline]
 fn is_binance_format(series_name: &str) -> bool {
-    // Validation stricte: doit contenir exactement un underscore
-    // et avoir des parties non vides de chaque côté
-    let parts: Vec<&str> = series_name.split('_').collect();
-    parts.len() == 2 && !parts[0].is_empty() && !parts[1].is_empty()
+    // Validation optimisée : vérifie directement sans allocation
+    if let Some(underscore_pos) = series_name.find('_') {
+        underscore_pos > 0 
+            && underscore_pos < series_name.len() - 1
+            && series_name[underscore_pos + 1..].find('_').is_none()
+    } else {
+        false
+    }
 }
 
 /// Complète les données manquantes pour toutes les séries
@@ -50,16 +56,13 @@ pub fn complete_missing_data(app: &mut ChartApp) -> Task<Message> {
         return Task::none();
     }
     
-    // Cloner le provider pour l'utiliser dans la Task async
-    let provider = app.binance_provider.clone();
+    // Arc::clone est très efficace (juste un compteur atomique)
+    let provider = Arc::clone(&app.binance_provider);
     
-    // Calculer le timestamp actuel une seule fois
+    // Calculer le timestamp actuel une seule fois (utilise expect car UNIX_EPOCH est toujours valide)
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_else(|_| {
-            eprintln!("⚠️ Erreur: horloge système invalide, utilisation d'un timestamp par défaut");
-            std::time::Duration::from_secs(0)
-        })
+        .expect("L'horloge système est antérieure à UNIX_EPOCH")
         .as_secs() as i64;
     
     // Créer une Task async qui fait toutes les requêtes en parallèle
@@ -72,7 +75,7 @@ pub fn complete_missing_data(app: &mut ChartApp) -> Task<Message> {
             let futures: Vec<_> = updates
                 .into_iter()
                 .map(|(series_id, series_name, last_ts)| {
-                    let provider = provider.clone();
+                    let provider = Arc::clone(&provider);
                     let series_id_clone = series_id.clone();
                     let series_name_clone = series_name.clone();
                     
@@ -194,8 +197,8 @@ pub fn complete_gaps(app: &mut ChartApp) -> Task<Message> {
         return Task::none();
     }
     
-    // Cloner le provider pour l'utiliser dans la Task async
-    let provider = app.binance_provider.clone();
+    // Arc::clone est très efficace (juste un compteur atomique)
+    let provider = Arc::clone(&app.binance_provider);
     
     // Créer une Task async qui fait toutes les requêtes en parallèle
     println!("🚀 Démarrage de la complétion des gaps pour {} gap(s)", gap_requests.len());
@@ -207,7 +210,7 @@ pub fn complete_gaps(app: &mut ChartApp) -> Task<Message> {
             let futures: Vec<_> = gap_requests
                 .into_iter()
                 .map(|(series_id, series_name, (gap_start, gap_end))| {
-                    let provider = provider.clone();
+                    let provider = Arc::clone(&provider);
                     let series_id_clone = series_id.clone();
                     let series_name_clone = series_name.clone();
                     
@@ -390,8 +393,8 @@ pub fn update_realtime(app: &mut ChartApp) -> Task<Message> {
         return Task::none();
     }
     
-    // Cloner le provider pour l'utiliser dans la Task async
-    let provider = app.binance_provider.clone();
+    // Arc::clone est très efficace (juste un compteur atomique)
+    let provider = Arc::clone(&app.binance_provider);
     
     // Créer une Task async qui fait toutes les requêtes en parallèle
     println!("🚀 Démarrage des requêtes async pour {} série(s)", active_series.len());
@@ -403,7 +406,7 @@ pub fn update_realtime(app: &mut ChartApp) -> Task<Message> {
             let futures: Vec<_> = active_series
                 .iter()
                 .map(|(series_id, series_name)| {
-                    let provider = provider.clone();
+                    let provider = Arc::clone(&provider);
                     let series_id = series_id.clone();
                     let series_name = series_name.clone();
                     

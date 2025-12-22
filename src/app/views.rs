@@ -18,6 +18,7 @@ use crate::app::{
     resize_handle::{horizontal_resize_handle, vertical_resize_handle},
     constants::VOLUME_CHART_HEIGHT,
     bottom_panel_sections::{BottomPanelSection, BottomPanelSectionsState},
+    view_styles::{self, colors},
 };
 
 /// Fonction helper pour le bouton de settings dans le coin
@@ -25,17 +26,7 @@ fn corner_settings_button() -> Element<'static, Message> {
     button("⚙️")
         .on_press(Message::OpenSettings)
         .padding(8)
-        .style(|_theme, status| {
-            let bg_color = match status {
-                button::Status::Hovered => Color::from_rgb(0.2, 0.2, 0.25),
-                _ => Color::from_rgb(0.15, 0.15, 0.18),
-            };
-            button::Style {
-                background: Some(iced::Background::Color(bg_color)),
-                text_color: Color::WHITE,
-                ..Default::default()
-            }
-        })
+        .style(view_styles::icon_button_style)
         .into()
 }
 
@@ -92,10 +83,7 @@ fn view_chart_component(app: &ChartApp) -> Element<'_, Message> {
         container(Space::new())
             .width(Length::Fixed(TOOLS_PANEL_WIDTH))
             .height(Length::Fill)
-            .style(|_theme| container::Style {
-                background: Some(iced::Background::Color(Color::from_rgb(0.08, 0.08, 0.10))),
-                ..Default::default()
-            }),
+            .style(view_styles::dark_background_style),
         volume_chart(&app.chart_state, volume_scale.clone()),
         volume_y_axis(volume_scale)
     ]
@@ -107,10 +95,7 @@ fn view_chart_component(app: &ChartApp) -> Element<'_, Message> {
         container(Space::new())
             .width(Length::Fixed(TOOLS_PANEL_WIDTH))
             .height(Length::Fill)
-            .style(|_theme| container::Style {
-                background: Some(iced::Background::Color(Color::from_rgb(0.08, 0.08, 0.10))),
-                ..Default::default()
-            }),
+            .style(view_styles::dark_background_style),
         x_axis(&app.chart_state).map(Message::XAxis),
         corner_settings_button()
     ]
@@ -168,29 +153,21 @@ fn view_right_panel(app: &ChartApp) -> Element<'_, Message> {
             row![
                 text("Panneau de droite")
                     .size(16)
-                    .color(Color::WHITE),
+                    .color(colors::TEXT_PRIMARY),
             ]
             .align_y(iced::Alignment::Center)
             .spacing(10),
             Space::new().height(Length::Fixed(10.0)),
             text("Cette section peut contenir des informations supplémentaires, des indicateurs, ou d'autres contrôles.")
                 .size(12)
-                .color(Color::from_rgb(0.7, 0.7, 0.7))
+                .color(colors::TEXT_SECONDARY)
         ]
         .padding(15)
         .spacing(10)
     )
     .width(Length::Fixed(panel_content_width))
     .height(Length::Fill)
-    .style(|_theme| container::Style {
-        background: Some(iced::Background::Color(Color::from_rgb(0.10, 0.10, 0.12))),
-        border: iced::Border {
-            color: Color::from_rgb(0.2, 0.2, 0.25),
-            width: 1.0,
-            radius: 0.0.into(),
-        },
-        ..Default::default()
-    });
+    .style(view_styles::panel_container_style);
     
     // Englober tout le panneau (poignée + contenu) dans mouse_area
     mouse_area(
@@ -225,33 +202,7 @@ fn bottom_panel_header(sections_state: &BottomPanelSectionsState) -> Element<'_,
         let section_button = button(text(section_name).size(12))
             .on_press(Message::SelectBottomPanelSection(section))
             .padding([6, 12])
-            .style(move |_theme, status| {
-                let bg_color = if is_active {
-                    match status {
-                        button::Status::Hovered => Color::from_rgb(0.3, 0.5, 0.7),
-                        _ => Color::from_rgb(0.25, 0.4, 0.6),
-                    }
-                } else {
-                    match status {
-                        button::Status::Hovered => Color::from_rgb(0.2, 0.2, 0.25),
-                        _ => Color::from_rgb(0.15, 0.15, 0.18),
-                    }
-                };
-                button::Style {
-                    background: Some(iced::Background::Color(bg_color)),
-                    text_color: Color::WHITE,
-                    border: iced::Border {
-                        color: if is_active {
-                            Color::from_rgb(0.4, 0.6, 0.8)
-                        } else {
-                            Color::from_rgb(0.3, 0.3, 0.35)
-                        },
-                        width: if is_active { 1.5 } else { 1.0 },
-                        radius: 4.0.into(),
-                    },
-                    ..Default::default()
-                }
-            });
+            .style(view_styles::tab_button_style(is_active));
         
         buttons_row = buttons_row.push(section_button);
     }
@@ -266,112 +217,61 @@ fn bottom_panel_header(sections_state: &BottomPanelSectionsState) -> Element<'_,
     )
     .width(Length::Fill)
     .height(Length::Fixed(header_height))
-    .style(|_theme| container::Style {
-        background: Some(iced::Background::Color(Color::from_rgb(0.12, 0.12, 0.15))),
-        border: iced::Border {
-            color: Color::from_rgb(0.2, 0.2, 0.25),
-            width: 1.0,
-            radius: 0.0.into(),
-        },
-        ..Default::default()
-    })
+    .style(view_styles::header_container_style)
+    .into()
+}
+
+/// Helper pour créer une vue de section de panneau simple
+fn simple_panel_section<'a>(title: &'a str, description: &'a str) -> Element<'a, Message> {
+    container(
+        column![
+            text(title)
+                .size(16)
+                .color(colors::TEXT_PRIMARY),
+            Space::new().height(Length::Fixed(10.0)),
+            text(description)
+                .size(12)
+                .color(colors::TEXT_SECONDARY)
+        ]
+        .padding(15)
+        .spacing(10)
+    )
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .style(view_styles::panel_container_no_border_style)
     .into()
 }
 
 /// Vue pour la section "Vue d'ensemble"
 fn view_bottom_panel_overview(_app: &ChartApp) -> Element<'_, Message> {
-    container(
-        column![
-            text("Vue d'ensemble")
-                .size(16)
-                .color(Color::WHITE),
-            Space::new().height(Length::Fixed(10.0)),
-            text("Cette section affiche une vue d'ensemble des statistiques et informations principales.")
-                .size(12)
-                .color(Color::from_rgb(0.7, 0.7, 0.7))
-        ]
-        .padding(15)
-        .spacing(10)
+    simple_panel_section(
+        "Vue d'ensemble",
+        "Cette section affiche une vue d'ensemble des statistiques et informations principales."
     )
-    .width(Length::Fill)
-    .height(Length::Fill)
-    .style(|_theme| container::Style {
-        background: Some(iced::Background::Color(Color::from_rgb(0.10, 0.10, 0.12))),
-        ..Default::default()
-    })
-    .into()
 }
 
 /// Vue pour la section "Logs"
 fn view_bottom_panel_logs(_app: &ChartApp) -> Element<'_, Message> {
-    container(
-        column![
-            text("Logs")
-                .size(16)
-                .color(Color::WHITE),
-            Space::new().height(Length::Fixed(10.0)),
-            text("Cette section affiche les logs de l'application.")
-                .size(12)
-                .color(Color::from_rgb(0.7, 0.7, 0.7))
-        ]
-        .padding(15)
-        .spacing(10)
+    simple_panel_section(
+        "Logs",
+        "Cette section affiche les logs de l'application."
     )
-    .width(Length::Fill)
-    .height(Length::Fill)
-    .style(|_theme| container::Style {
-        background: Some(iced::Background::Color(Color::from_rgb(0.10, 0.10, 0.12))),
-        ..Default::default()
-    })
-    .into()
 }
 
 /// Vue pour la section "Indicateurs"
 fn view_bottom_panel_indicators(_app: &ChartApp) -> Element<'_, Message> {
-    container(
-        column![
-            text("Indicateurs techniques")
-                .size(16)
-                .color(Color::WHITE),
-            Space::new().height(Length::Fixed(10.0)),
-            text("Cette section affiche les indicateurs techniques et analyses.")
-                .size(12)
-                .color(Color::from_rgb(0.7, 0.7, 0.7))
-        ]
-        .padding(15)
-        .spacing(10)
+    simple_panel_section(
+        "Indicateurs techniques",
+        "Cette section affiche les indicateurs techniques et analyses."
     )
-    .width(Length::Fill)
-    .height(Length::Fill)
-    .style(|_theme| container::Style {
-        background: Some(iced::Background::Color(Color::from_rgb(0.10, 0.10, 0.12))),
-        ..Default::default()
-    })
-    .into()
 }
 
 /// Vue pour la section "Ordres"
 fn view_bottom_panel_orders(_app: &ChartApp) -> Element<'_, Message> {
-    container(
-        column![
-            text("Ordres et Trades")
-                .size(16)
-                .color(Color::WHITE),
-            Space::new().height(Length::Fixed(10.0)),
-            text("Cette section affiche les ordres et trades.")
-                .size(12)
-                .color(Color::from_rgb(0.7, 0.7, 0.7))
-        ]
-        .padding(15)
-        .spacing(10)
+    simple_panel_section(
+        "Ordres et Trades",
+        "Cette section affiche les ordres et trades."
     )
-    .width(Length::Fill)
-    .height(Length::Fill)
-    .style(|_theme| container::Style {
-        background: Some(iced::Background::Color(Color::from_rgb(0.10, 0.10, 0.12))),
-        ..Default::default()
-    })
-    .into()
 }
 
 /// Vue pour la section "Compte"
@@ -551,21 +451,11 @@ pub fn view_main(app: &ChartApp) -> Element<'_, Message> {
         row![
             text(title_text)
                 .size(24)
-                .color(Color::WHITE),
+                .color(colors::TEXT_PRIMARY),
             Space::new().width(Length::Fill),
             button("⚙️ Provider")
                 .on_press(Message::OpenProviderConfig)
-                .style(|_theme, status| {
-                    let bg_color = match status {
-                        button::Status::Hovered => Color::from_rgb(0.2, 0.2, 0.25),
-                        _ => Color::from_rgb(0.15, 0.15, 0.18),
-                    };
-                    button::Style {
-                        background: Some(iced::Background::Color(bg_color)),
-                        text_color: Color::WHITE,
-                        ..Default::default()
-                    }
-                }),
+                .style(view_styles::icon_button_style),
             Space::new().width(Length::Fixed(10.0)),
             series_select_box(&app.chart_state.series_manager).map(Message::SeriesPanel)
         ]
@@ -575,7 +465,7 @@ pub fn view_main(app: &ChartApp) -> Element<'_, Message> {
     .width(Length::Fill)
     .padding(15)
     .style(|_theme| container::Style {
-        background: Some(iced::Background::Color(Color::from_rgb(0.12, 0.12, 0.15))),
+        background: Some(iced::Background::Color(colors::BACKGROUND_HEADER)),
         ..Default::default()
     });
 
@@ -726,30 +616,14 @@ pub fn view_settings(app: &ChartApp) -> Element<'_, Message> {
     )
     .on_press(Message::ApplySettings)
     .padding([8, 20])
-    .style(|_theme, _status| button::Style {
-        background: Some(iced::Background::Color(Color::from_rgb(0.2, 0.5, 0.2))),
-        text_color: Color::WHITE,
-        border: iced::Border {
-            radius: 4.0.into(),
-            ..Default::default()
-        },
-        ..Default::default()
-    });
+    .style(view_styles::success_button_style);
 
     let cancel_btn = button(
         text("Annuler").size(14)
     )
     .on_press(Message::CancelSettings)
     .padding([8, 20])
-    .style(|_theme, _status| button::Style {
-        background: Some(iced::Background::Color(Color::from_rgb(0.5, 0.2, 0.2))),
-        text_color: Color::WHITE,
-        border: iced::Border {
-            radius: 4.0.into(),
-            ..Default::default()
-        },
-        ..Default::default()
-    });
+    .style(view_styles::danger_button_style);
 
     let buttons_row = row![
         Space::new().width(Length::Fill),
@@ -768,7 +642,7 @@ pub fn view_settings(app: &ChartApp) -> Element<'_, Message> {
             .on_toggle(|_| Message::ToggleAutoScroll),
         text("Défilement automatique vers les dernières données")
             .size(14)
-            .color(Color::from_rgb(0.8, 0.8, 0.8))
+            .color(colors::TEXT_TERTIARY)
     ]
     .spacing(10)
     .align_y(iced::Alignment::Center);
@@ -795,7 +669,7 @@ pub fn view_settings(app: &ChartApp) -> Element<'_, Message> {
         .width(Length::Fill)
         .height(Length::Fill)
         .style(|_theme| container::Style {
-            background: Some(iced::Background::Color(Color::from_rgb(0.12, 0.12, 0.15))),
+            background: Some(iced::Background::Color(colors::BACKGROUND_HEADER)),
             ..Default::default()
         })
         .into()
@@ -805,7 +679,7 @@ pub fn view_settings(app: &ChartApp) -> Element<'_, Message> {
 pub fn view_provider_config(app: &ChartApp) -> Element<'_, Message> {
     let title = text("Configuration des Providers")
         .size(20)
-        .color(Color::WHITE);
+        .color(colors::TEXT_PRIMARY);
 
     let mut provider_list = column![].spacing(15);
 
@@ -813,11 +687,11 @@ pub fn view_provider_config(app: &ChartApp) -> Element<'_, Message> {
         let is_active = app.provider_config.active_provider == provider_type;
         let provider_name = text(provider_type.display_name())
             .size(16)
-            .color(if is_active { Color::from_rgb(0.4, 0.8, 1.0) } else { Color::WHITE });
+            .color(if is_active { colors::INFO } else { colors::TEXT_PRIMARY });
         
         let description = text(provider_type.description())
             .size(12)
-            .color(Color::from_rgb(0.7, 0.7, 0.7));
+            .color(colors::TEXT_SECONDARY);
 
         // Token input
         let current_token = app.editing_provider_token
@@ -832,25 +706,11 @@ pub fn view_provider_config(app: &ChartApp) -> Element<'_, Message> {
         // Bouton de sélection
         let select_btn = if is_active {
             button(text("✓ Actif").size(12))
-                .style(|_theme, _status| button::Style {
-                    background: Some(iced::Background::Color(Color::from_rgb(0.2, 0.5, 0.2))),
-                    text_color: Color::WHITE,
-                    ..Default::default()
-                })
+                .style(view_styles::success_button_style)
         } else {
             button(text("Sélectionner").size(12))
                 .on_press(Message::SelectProvider(provider_type))
-                .style(|_theme, status| {
-                    let bg_color = match status {
-                        button::Status::Hovered => Color::from_rgb(0.2, 0.2, 0.25),
-                        _ => Color::from_rgb(0.15, 0.15, 0.18),
-                    };
-                    button::Style {
-                        background: Some(iced::Background::Color(bg_color)),
-                        text_color: Color::WHITE,
-                        ..Default::default()
-                    }
-                })
+                .style(view_styles::icon_button_style)
         };
 
         let provider_card = container(
@@ -869,19 +729,7 @@ pub fn view_provider_config(app: &ChartApp) -> Element<'_, Message> {
             .spacing(8)
             .padding(15)
         )
-        .style(move |_theme| container::Style {
-            background: Some(iced::Background::Color(Color::from_rgb(0.1, 0.1, 0.12))),
-            border: iced::Border {
-                color: if is_active {
-                    Color::from_rgb(0.4, 0.8, 1.0)
-                } else {
-                    Color::from_rgb(0.2, 0.2, 0.25)
-                },
-                width: if is_active { 2.0 } else { 1.0 },
-                radius: 8.0.into(),
-            },
-            ..Default::default()
-        });
+        .style(view_styles::provider_card_style(is_active));
 
         provider_list = provider_list.push(provider_card);
     }
@@ -891,36 +739,14 @@ pub fn view_provider_config(app: &ChartApp) -> Element<'_, Message> {
     )
     .on_press(Message::ApplyProviderConfig)
     .padding([8, 20])
-    .style(|_theme, _status| button::Style {
-        background: Some(iced::Background::Color(Color::from_rgb(0.2, 0.5, 0.2))),
-        text_color: Color::WHITE,
-        border: iced::Border {
-            radius: 4.0.into(),
-            ..Default::default()
-        },
-        ..Default::default()
-    });
+    .style(view_styles::success_button_style);
 
     let cancel_btn = button(
         text("Annuler").size(14)
     )
     .on_press(Message::CancelProviderConfig)
     .padding([8, 20])
-    .style(|_theme, status| {
-        let bg_color = match status {
-            button::Status::Hovered => Color::from_rgb(0.3, 0.2, 0.2),
-            _ => Color::from_rgb(0.25, 0.15, 0.15),
-        };
-        button::Style {
-            background: Some(iced::Background::Color(bg_color)),
-            text_color: Color::WHITE,
-            border: iced::Border {
-                radius: 4.0.into(),
-                ..Default::default()
-            },
-            ..Default::default()
-        }
-    });
+    .style(view_styles::danger_button_style);
 
     let content = column![
         title,
@@ -944,10 +770,7 @@ pub fn view_provider_config(app: &ChartApp) -> Element<'_, Message> {
     container(content)
         .width(Length::Fill)
         .height(Length::Fill)
-        .style(|_theme| container::Style {
-            background: Some(iced::Background::Color(Color::from_rgb(0.08, 0.08, 0.10))),
-            ..Default::default()
-        })
+        .style(view_styles::dark_background_style)
         .into()
 }
 
