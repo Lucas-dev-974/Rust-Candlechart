@@ -69,5 +69,17 @@ pub enum Message {
     UpdateResizeBottomPanel(f32),
     EndResizeRightPanel,
     EndResizeBottomPanel,
+    
+    // === Messages des sections du panneau du bas ===
+    SelectBottomPanelSection(crate::app::bottom_panel_sections::BottomPanelSection),
+    
+    // === Messages du type de compte ===
+    ToggleAccountType,
+    SetAccountType(crate::app::account_type::AccountType),
+    
+    // === Messages de focus des panneaux ===
+    SetRightPanelFocus(bool),
+    SetBottomPanelFocus(bool),
+    ClearPanelFocus,
 }
 

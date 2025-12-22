@@ -372,6 +372,37 @@ impl ChartApp {
                 self.panels.bottom.end_resize();
                 Task::none()
             }
+            Message::SelectBottomPanelSection(section) => {
+                self.bottom_panel_sections.set_active_section(section);
+                Task::none()
+            }
+            Message::SetRightPanelFocus(focused) => {
+                self.panels.right.set_focused(focused);
+                Task::none()
+            }
+            Message::SetBottomPanelFocus(focused) => {
+                self.panels.bottom.set_focused(focused);
+                Task::none()
+            }
+            Message::ClearPanelFocus => {
+                self.panels.right.set_focused(false);
+                self.panels.bottom.set_focused(false);
+                Task::none()
+            }
+            Message::ToggleAccountType => {
+                // Basculer entre démo et réel
+                let new_type = if self.account_type.is_demo() {
+                    crate::app::account_type::AccountType::Real
+                } else {
+                    crate::app::account_type::AccountType::Demo
+                };
+                self.account_type.set_account_type(new_type);
+                Task::none()
+            }
+            Message::SetAccountType(account_type) => {
+                self.account_type.set_account_type(account_type);
+                Task::none()
+            }
         }
     }
     

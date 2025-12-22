@@ -3,7 +3,7 @@
 //! Ce module contient toutes les méthodes de rendu (view) pour les différentes fenêtres
 //! de l'application : fenêtre principale, settings, et configuration des providers.
 
-use iced::widget::{button, column, container, row, text, scrollable, Space, checkbox, text_input};
+use iced::widget::{button, column, container, row, text, scrollable, Space, checkbox, text_input, mouse_area};
 use iced::{Element, Length, Color};
 use crate::finance_chart::{
     chart, x_axis, y_axis, tools_panel, series_select_box,
@@ -17,6 +17,7 @@ use crate::app::{
     messages::Message,
     resize_handle::{horizontal_resize_handle, vertical_resize_handle},
     constants::VOLUME_CHART_HEIGHT,
+    bottom_panel_sections::{BottomPanelSection, BottomPanelSectionsState},
 };
 
 /// Fonction helper pour le bouton de settings dans le coin
@@ -69,10 +70,18 @@ fn view_chart_component(app: &ChartApp) -> Element<'_, Message> {
     };
 
     // Ligne principale : Tools (gauche) + Chart (centre) + Axe Y (droite)
+    let panel_focused = app.panels.has_focused_panel();
     let chart_row = row![
         tools_panel(&app.tools_state).map(Message::ToolsPanel),
-        chart(&app.chart_state, &app.tools_state, &app.settings_state, &app.chart_style)
-            .map(Message::Chart),
+        mouse_area(
+            container(
+                chart(&app.chart_state, &app.tools_state, &app.settings_state, &app.chart_style, panel_focused)
+                    .map(Message::Chart)
+            )
+            .width(Length::Fill)
+            .height(Length::Fill)
+        )
+        .on_enter(Message::ClearPanelFocus),
         y_axis(&app.chart_state).map(Message::YAxis)
     ]
     .width(Length::Fill)
@@ -138,13 +147,17 @@ fn view_right_panel(app: &ChartApp) -> Element<'_, Message> {
     let handle_width = 6.0;
     let is_snapped = app.panels.right.is_snapped();
     
-    // Si le panneau est snappé, on affiche seulement la poignée
+    // Si le panneau est snappé, on affiche seulement la poignée (avec protection mouse_area)
     if is_snapped {
-        return row![
-            right_panel_resize_handle(app)
-        ]
-        .width(Length::Fixed(handle_width))
-        .height(Length::Fill)
+        return mouse_area(
+            row![
+                right_panel_resize_handle(app)
+            ]
+            .width(Length::Fixed(handle_width))
+            .height(Length::Fill)
+        )
+        .on_enter(Message::SetRightPanelFocus(true))
+        .on_exit(Message::SetRightPanelFocus(false))
         .into();
     }
     
@@ -179,12 +192,17 @@ fn view_right_panel(app: &ChartApp) -> Element<'_, Message> {
         ..Default::default()
     });
     
-    row![
-        right_panel_resize_handle(app),
-        panel_content
-    ]
-    .width(Length::Fixed(app.panels.right.size))
-    .height(Length::Fill)
+    // Englober tout le panneau (poignée + contenu) dans mouse_area
+    mouse_area(
+        row![
+            right_panel_resize_handle(app),
+            panel_content
+        ]
+        .width(Length::Fixed(app.panels.right.size))
+        .height(Length::Fill)
+    )
+    .on_enter(Message::SetRightPanelFocus(true))
+    .on_exit(Message::SetRightPanelFocus(false))
     .into()
 }
 
@@ -193,6 +211,284 @@ fn bottom_panel_resize_handle(app: &ChartApp) -> Element<'_, Message> {
     // Hauteur plus visible pour le handle
     let handle_height = 6.0;
     vertical_resize_handle(handle_height, app.panels.bottom.is_resizing)
+}
+
+/// Header du panneau du bas avec les boutons de sections
+fn bottom_panel_header(sections_state: &BottomPanelSectionsState) -> Element<'_, Message> {
+    let header_height = 40.0;
+    let mut buttons_row = row![].spacing(5);
+    
+    for section in BottomPanelSection::all() {
+        let is_active = sections_state.active_section == section;
+        let section_name = section.display_name();
+        
+        let section_button = button(text(section_name).size(12))
+            .on_press(Message::SelectBottomPanelSection(section))
+            .padding([6, 12])
+            .style(move |_theme, status| {
+                let bg_color = if is_active {
+                    match status {
+                        button::Status::Hovered => Color::from_rgb(0.3, 0.5, 0.7),
+                        _ => Color::from_rgb(0.25, 0.4, 0.6),
+                    }
+                } else {
+                    match status {
+                        button::Status::Hovered => Color::from_rgb(0.2, 0.2, 0.25),
+                        _ => Color::from_rgb(0.15, 0.15, 0.18),
+                    }
+                };
+                button::Style {
+                    background: Some(iced::Background::Color(bg_color)),
+                    text_color: Color::WHITE,
+                    border: iced::Border {
+                        color: if is_active {
+                            Color::from_rgb(0.4, 0.6, 0.8)
+                        } else {
+                            Color::from_rgb(0.3, 0.3, 0.35)
+                        },
+                        width: if is_active { 1.5 } else { 1.0 },
+                        radius: 4.0.into(),
+                    },
+                    ..Default::default()
+                }
+            });
+        
+        buttons_row = buttons_row.push(section_button);
+    }
+    
+    container(
+        row![
+            buttons_row,
+            Space::new().width(Length::Fill),
+        ]
+        .align_y(iced::Alignment::Center)
+        .padding([0, 10])
+    )
+    .width(Length::Fill)
+    .height(Length::Fixed(header_height))
+    .style(|_theme| container::Style {
+        background: Some(iced::Background::Color(Color::from_rgb(0.12, 0.12, 0.15))),
+        border: iced::Border {
+            color: Color::from_rgb(0.2, 0.2, 0.25),
+            width: 1.0,
+            radius: 0.0.into(),
+        },
+        ..Default::default()
+    })
+    .into()
+}
+
+/// Vue pour la section "Vue d'ensemble"
+fn view_bottom_panel_overview(_app: &ChartApp) -> Element<'_, Message> {
+    container(
+        column![
+            text("Vue d'ensemble")
+                .size(16)
+                .color(Color::WHITE),
+            Space::new().height(Length::Fixed(10.0)),
+            text("Cette section affiche une vue d'ensemble des statistiques et informations principales.")
+                .size(12)
+                .color(Color::from_rgb(0.7, 0.7, 0.7))
+        ]
+        .padding(15)
+        .spacing(10)
+    )
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .style(|_theme| container::Style {
+        background: Some(iced::Background::Color(Color::from_rgb(0.10, 0.10, 0.12))),
+        ..Default::default()
+    })
+    .into()
+}
+
+/// Vue pour la section "Logs"
+fn view_bottom_panel_logs(_app: &ChartApp) -> Element<'_, Message> {
+    container(
+        column![
+            text("Logs")
+                .size(16)
+                .color(Color::WHITE),
+            Space::new().height(Length::Fixed(10.0)),
+            text("Cette section affiche les logs de l'application.")
+                .size(12)
+                .color(Color::from_rgb(0.7, 0.7, 0.7))
+        ]
+        .padding(15)
+        .spacing(10)
+    )
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .style(|_theme| container::Style {
+        background: Some(iced::Background::Color(Color::from_rgb(0.10, 0.10, 0.12))),
+        ..Default::default()
+    })
+    .into()
+}
+
+/// Vue pour la section "Indicateurs"
+fn view_bottom_panel_indicators(_app: &ChartApp) -> Element<'_, Message> {
+    container(
+        column![
+            text("Indicateurs techniques")
+                .size(16)
+                .color(Color::WHITE),
+            Space::new().height(Length::Fixed(10.0)),
+            text("Cette section affiche les indicateurs techniques et analyses.")
+                .size(12)
+                .color(Color::from_rgb(0.7, 0.7, 0.7))
+        ]
+        .padding(15)
+        .spacing(10)
+    )
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .style(|_theme| container::Style {
+        background: Some(iced::Background::Color(Color::from_rgb(0.10, 0.10, 0.12))),
+        ..Default::default()
+    })
+    .into()
+}
+
+/// Vue pour la section "Ordres"
+fn view_bottom_panel_orders(_app: &ChartApp) -> Element<'_, Message> {
+    container(
+        column![
+            text("Ordres et Trades")
+                .size(16)
+                .color(Color::WHITE),
+            Space::new().height(Length::Fixed(10.0)),
+            text("Cette section affiche les ordres et trades.")
+                .size(12)
+                .color(Color::from_rgb(0.7, 0.7, 0.7))
+        ]
+        .padding(15)
+        .spacing(10)
+    )
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .style(|_theme| container::Style {
+        background: Some(iced::Background::Color(Color::from_rgb(0.10, 0.10, 0.12))),
+        ..Default::default()
+    })
+    .into()
+}
+
+/// Vue pour la section "Compte"
+fn view_bottom_panel_account(app: &ChartApp) -> Element<'_, Message> {
+    let is_demo_mode = app.account_type.is_demo();
+    let is_real_mode = app.account_type.is_real();
+    let account_type_desc = app.account_type.account_type.description();
+    
+    // Informations sur le provider actif
+    let provider_name = app.provider_config.active_provider.display_name();
+    let provider_info = if let Some(config) = app.provider_config.active_config() {
+        if config.api_token.is_some() {
+            format!("{} (Token configuré)", provider_name)
+        } else {
+            format!("{} (API publique)", provider_name)
+        }
+    } else {
+        provider_name.to_string()
+    };
+    
+    // Séparateur visuel
+    let separator = || container(Space::new().height(1))
+        .width(Length::Fill)
+        .style(|_theme| container::Style {
+            background: Some(iced::Background::Color(Color::from_rgb(0.3, 0.3, 0.35))),
+            ..Default::default()
+        });
+    
+    container(
+        column![
+            // Titre
+            text("Compte")
+                .size(18)
+                .color(Color::WHITE),
+            Space::new().height(Length::Fixed(15.0)),
+            
+            // Switch pour basculer entre démo et réel
+            row![
+                checkbox(is_demo_mode)
+                    .on_toggle(move |_| Message::ToggleAccountType),
+                text("Compte paper")
+                    .size(14)
+                    .color(Color::WHITE),
+            ]
+            .spacing(10)
+            .align_y(iced::Alignment::Center),
+            
+            Space::new().height(Length::Fixed(8.0)),
+            
+            // Description du mode actuel
+            container(
+                text(account_type_desc)
+                    .size(12)
+                    .color(if is_real_mode {
+                        Color::from_rgb(1.0, 0.7, 0.7) // Rouge clair pour le mode réel (attention)
+                    } else {
+                        Color::from_rgb(0.7, 0.9, 0.7) // Vert clair pour le mode démo (sécurisé)
+                    })
+            )
+            .padding([5, 10])
+            .style(move |_theme| {
+                let is_real = is_real_mode;
+                container::Style {
+                    background: Some(iced::Background::Color(if is_real {
+                        Color::from_rgb(0.3, 0.15, 0.15) // Fond rouge foncé pour mode réel
+                    } else {
+                        Color::from_rgb(0.15, 0.3, 0.15) // Fond vert foncé pour mode démo
+                    })),
+                    border: iced::Border {
+                        color: if is_real {
+                            Color::from_rgb(0.8, 0.4, 0.4)
+                        } else {
+                            Color::from_rgb(0.4, 0.8, 0.4)
+                        },
+                        width: 1.0,
+                        radius: 4.0.into(),
+                    },
+                    ..Default::default()
+                }
+            }),
+            
+            Space::new().height(Length::Fixed(15.0)),
+            separator(),
+            Space::new().height(Length::Fixed(15.0)),
+            
+            // Informations sur le provider
+            text("Provider actif:")
+                .size(14)
+                .color(Color::from_rgb(0.9, 0.9, 0.9)),
+            Space::new().height(Length::Fixed(5.0)),
+            text(provider_info)
+                .size(12)
+                .color(Color::from_rgb(0.7, 0.7, 0.9)),
+            
+        ]
+        .padding(15)
+        .spacing(10)
+        .width(Length::Fill)
+    )
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .style(|_theme| container::Style {
+        background: Some(iced::Background::Color(Color::from_rgb(0.10, 0.10, 0.12))),
+        ..Default::default()
+    })
+    .into()
+}
+
+/// Affiche le contenu de la section active
+fn view_bottom_panel_content(app: &ChartApp) -> Element<'_, Message> {
+    match app.bottom_panel_sections.active_section {
+        BottomPanelSection::Overview => view_bottom_panel_overview(app),
+        BottomPanelSection::Logs => view_bottom_panel_logs(app),
+        BottomPanelSection::Indicators => view_bottom_panel_indicators(app),
+        BottomPanelSection::Orders => view_bottom_panel_orders(app),
+        BottomPanelSection::Account => view_bottom_panel_account(app),
+    }
 }
 
 /// Section en bas du graphique
@@ -207,53 +503,37 @@ fn view_bottom_panel(app: &ChartApp) -> Element<'_, Message> {
     let handle_height = 6.0;
     let is_snapped = app.panels.bottom.is_snapped();
     
-    // Si le panneau est snappé, on affiche seulement la poignée
+    // Si le panneau est snappé, on affiche seulement la poignée (avec protection mouse_area)
     if is_snapped {
-        return column![
-            bottom_panel_resize_handle(app)
-        ]
-        .width(Length::Fill)
-        .height(Length::Fixed(handle_height))
+        return mouse_area(
+            column![
+                bottom_panel_resize_handle(app)
+            ]
+            .width(Length::Fill)
+            .height(Length::Fixed(handle_height))
+        )
+        .on_enter(Message::SetBottomPanelFocus(true))
+        .on_exit(Message::SetBottomPanelFocus(false))
         .into();
     }
     
-    let panel_content_height = app.panels.bottom.size - handle_height;
+    let header_height = 40.0;
+    let panel_content_height = app.panels.bottom.size - handle_height - header_height;
     
-    let panel_content = container(
+    // Englober tout le panneau (poignée + header + contenu) dans mouse_area
+    mouse_area(
         column![
-            row![
-                text("Panneau du bas")
-                    .size(16)
-                    .color(Color::WHITE),
-            ]
-            .align_y(iced::Alignment::Center)
-            .spacing(10),
-            Space::new().height(Length::Fixed(10.0)),
-            text("Cette section peut contenir des statistiques, des logs, ou d'autres informations contextuelles.")
-                .size(12)
-                .color(Color::from_rgb(0.7, 0.7, 0.7))
+            bottom_panel_resize_handle(app),
+            bottom_panel_header(&app.bottom_panel_sections),
+            container(view_bottom_panel_content(app))
+                .width(Length::Fill)
+                .height(Length::Fixed(panel_content_height))
         ]
-        .padding(15)
-        .spacing(10)
+        .width(Length::Fill)
+        .height(Length::Fixed(app.panels.bottom.size))
     )
-    .width(Length::Fill)
-    .height(Length::Fixed(panel_content_height))
-    .style(|_theme| container::Style {
-        background: Some(iced::Background::Color(Color::from_rgb(0.10, 0.10, 0.12))),
-        border: iced::Border {
-            color: Color::from_rgb(0.2, 0.2, 0.25),
-            width: 1.0,
-            radius: 0.0.into(),
-        },
-        ..Default::default()
-    });
-    
-    column![
-        bottom_panel_resize_handle(app),
-        panel_content
-    ]
-    .width(Length::Fill)
-    .height(Length::Fixed(app.panels.bottom.size))
+    .on_enter(Message::SetBottomPanelFocus(true))
+    .on_exit(Message::SetBottomPanelFocus(false))
     .into()
 }
 

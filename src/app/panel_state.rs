@@ -23,6 +23,8 @@ pub struct PanelState {
     pub is_resizing: bool,
     /// Position de départ du redimensionnement
     pub resize_start: Option<f32>,
+    /// Indique si le panneau a le focus (les événements du chart sont désactivés)
+    pub focused: bool,
 }
 
 impl PanelState {
@@ -34,6 +36,7 @@ impl PanelState {
             max_size,
             is_resizing: false,
             resize_start: None,
+            focused: false,
         }
     }
 
@@ -89,6 +92,11 @@ impl PanelState {
     pub fn toggle_visibility(&mut self) {
         self.visible = !self.visible;
     }
+    
+    /// Met le panneau en focus
+    pub fn set_focused(&mut self, focused: bool) {
+        self.focused = focused;
+    }
 }
 
 /// État de tous les panneaux
@@ -108,6 +116,11 @@ impl PanelsState {
             right: PanelState::new(RIGHT_PANEL_WIDTH, MIN_PANEL_SIZE, 500.0),
             bottom: PanelState::new(BOTTOM_PANEL_HEIGHT, MIN_PANEL_SIZE, 400.0),
         }
+    }
+    
+    /// Retourne true si un panneau a le focus
+    pub fn has_focused_panel(&self) -> bool {
+        self.right.focused || self.bottom.focused
     }
 }
 

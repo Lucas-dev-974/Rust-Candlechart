@@ -39,6 +39,8 @@ pub struct ChartProgram<'a> {
     tools_state: &'a ToolsState,
     settings_state: &'a SettingsState,
     chart_style: &'a ChartStyle,
+    /// Indique si un panneau a le focus (désactive les interactions du chart)
+    panel_focused: bool,
 }
 
 impl<'a> ChartProgram<'a> {
@@ -47,8 +49,9 @@ impl<'a> ChartProgram<'a> {
         tools_state: &'a ToolsState,
         settings_state: &'a SettingsState,
         chart_style: &'a ChartStyle,
+        panel_focused: bool,
     ) -> Self {
-        Self { chart_state, tools_state, settings_state, chart_style }
+        Self { chart_state, tools_state, settings_state, chart_style, panel_focused }
     }
 
     /// Génère des couleurs différentes pour chaque série
@@ -447,6 +450,11 @@ impl<'a> ChartProgram<'a> {
     }
 
     fn handle_mouse_press(&self, position: Point) -> Option<CanvasAction<ChartMessage>> {
+        // Ignorer les événements si un panneau a le focus
+        if self.panel_focused {
+            return None;
+        }
+        
         let viewport = &self.chart_state.viewport;
         let time = viewport.time_scale().x_to_time(position.x);
         let price = viewport.price_scale().y_to_price(position.y);
@@ -538,6 +546,11 @@ impl<'a> ChartProgram<'a> {
     }
 
     fn handle_mouse_move(&self, position: Point, _bounds: Rectangle) -> Option<CanvasAction<ChartMessage>> {
+        // Ignorer les événements si un panneau a le focus
+        if self.panel_focused {
+            return None;
+        }
+        
         let viewport = &self.chart_state.viewport;
         let time = viewport.time_scale().x_to_time(position.x);
         let price = viewport.price_scale().y_to_price(position.y);
@@ -575,6 +588,11 @@ impl<'a> ChartProgram<'a> {
     }
 
     fn handle_scroll(&self, widget_state: &WidgetState, delta: mouse::ScrollDelta) -> Option<CanvasAction<ChartMessage>> {
+        // Ignorer les événements si un panneau a le focus
+        if self.panel_focused {
+            return None;
+        }
+        
         let zoom_factor = match delta {
             mouse::ScrollDelta::Lines { y, .. } => if y > 0.0 { 0.9 } else { 1.1 },
             mouse::ScrollDelta::Pixels { y, .. } => if y > 0.0 { 0.95 } else { 1.05 },
@@ -601,8 +619,9 @@ pub fn chart<'a>(
     tools_state: &'a ToolsState,
     settings_state: &'a SettingsState,
     chart_style: &'a ChartStyle,
+    panel_focused: bool,
 ) -> Element<'a, ChartMessage> {
-    Canvas::new(ChartProgram::new(chart_state, tools_state, settings_state, chart_style))
+    Canvas::new(ChartProgram::new(chart_state, tools_state, settings_state, chart_style, panel_focused))
         .width(Length::Fill)
         .height(Length::Fill)
         .into()

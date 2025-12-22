@@ -15,6 +15,8 @@ use crate::app::{
     messages::Message,
     data_loading,
     panel_state::PanelsState,
+    bottom_panel_sections::BottomPanelSectionsState,
+    account_type::AccountTypeState,
 };
 
 /// Application principale - possède directement tout l'état (pas de Rc<RefCell>)
@@ -47,6 +49,12 @@ pub struct ChartApp {
     
     // État des panneaux latéraux
     pub panels: PanelsState,
+    
+    // État des sections du panneau du bas
+    pub bottom_panel_sections: BottomPanelSectionsState,
+    
+    // État du type de compte
+    pub account_type: AccountTypeState,
 }
 
 impl ChartApp {
@@ -127,6 +135,8 @@ impl ChartApp {
                 realtime_enabled: true, // Activer le mode temps réel par défaut
                 render_version: 0,
                 panels: PanelsState::new(),
+                bottom_panel_sections: BottomPanelSectionsState::new(),
+                account_type: AccountTypeState::new(),
             },
             Task::batch(vec![
                 open_task.map(Message::MainWindowOpened),
