@@ -1,4 +1,4 @@
-/// Représente une bougie OHLC (Open, High, Low, Close)
+/// Représente une bougie OHLC (Open, High, Low, Close) avec volume
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Candle {
     /// Timestamp Unix (secondes)
@@ -11,6 +11,8 @@ pub struct Candle {
     pub low: f64,
     /// Prix de clôture
     pub close: f64,
+    /// Volume échangé
+    pub volume: f64,
 }
 
 impl Candle {
@@ -18,7 +20,7 @@ impl Candle {
     /// 
     /// Les valeurs high et low sont automatiquement ajustées pour respecter
     /// les invariants OHLC : low ≤ min(open, close) et high ≥ max(open, close)
-    pub fn new(timestamp: i64, open: f64, high: f64, low: f64, close: f64) -> Self {
+    pub fn new(timestamp: i64, open: f64, high: f64, low: f64, close: f64, volume: f64) -> Self {
         // Assurer que high >= max(open, close) et low <= min(open, close)
         let actual_high = high.max(open).max(close);
         let actual_low = low.min(open).min(close);
@@ -29,6 +31,7 @@ impl Candle {
             high: actual_high,
             low: actual_low,
             close,
+            volume: volume.max(0.0), // Volume ne peut pas être négatif
         }
     }
 
@@ -44,7 +47,7 @@ mod tests {
 
     #[test]
     fn test_bullish_candle() {
-        let candle = Candle::new(1000, 100.0, 105.0, 99.0, 104.0);
+        let candle = Candle::new(1000, 100.0, 105.0, 99.0, 104.0, 1000.0);
         assert!(candle.is_bullish());
         assert_eq!(candle.high, 105.0);
         assert_eq!(candle.low, 99.0);
@@ -52,7 +55,7 @@ mod tests {
 
     #[test]
     fn test_bearish_candle() {
-        let candle = Candle::new(1000, 104.0, 105.0, 99.0, 100.0);
+        let candle = Candle::new(1000, 104.0, 105.0, 99.0, 100.0, 1000.0);
         assert!(!candle.is_bullish());
     }
 }

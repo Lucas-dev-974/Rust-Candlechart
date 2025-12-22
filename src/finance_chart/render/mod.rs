@@ -1,3 +1,4 @@
+pub mod bar_sizing;
 pub mod candlestick;
 pub mod crosshair;
 pub mod current_price;
@@ -7,6 +8,7 @@ pub mod rectangles;
 pub mod tooltip;
 pub mod utils;
 
+pub use bar_sizing::{calculate_bar_width, calculate_candle_period};
 pub use candlestick::render_candlesticks;
 pub use crosshair::render_crosshair;
 pub use current_price::render_current_price_line;

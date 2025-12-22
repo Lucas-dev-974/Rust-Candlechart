@@ -22,9 +22,9 @@ struct JsonKline {
     low: f64,
     /// Prix de clôture
     close: f64,
-    /// Volume (non utilisé mais présent dans le JSON)
+    /// Volume échangé
     #[serde(rename = "volume")]
-    _volume: f64,
+    volume: f64,
 }
 
 /// Structure JSON pour le fichier complet
@@ -209,6 +209,7 @@ pub fn load_from_json<P: AsRef<Path>>(path: P) -> Result<SeriesData, LoadError> 
             kline.high,
             kline.low,
             kline.close,
+            kline.volume,
         );
 
         // Ignorer les bougies invalides (déjà validées dans validate_json_data)
@@ -304,7 +305,7 @@ pub fn save_to_json<P: AsRef<Path>>(series: &SeriesData, path: P) -> Result<(), 
             high: candle.high,
             low: candle.low,
             close: candle.close,
-            _volume: 0.0, // Volume non utilisé
+            volume: candle.volume,
         })
         .collect();
 

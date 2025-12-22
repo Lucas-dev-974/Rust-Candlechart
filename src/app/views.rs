@@ -7,13 +7,16 @@ use iced::widget::{button, column, container, row, text, scrollable, Space, chec
 use iced::{Element, Length, Color};
 use crate::finance_chart::{
     chart, x_axis, y_axis, tools_panel, series_select_box,
+    volume_chart, volume_y_axis,
     X_AXIS_HEIGHT, TOOLS_PANEL_WIDTH,
     settings::{color_fields, preset_colors, SerializableColor},
-    ProviderType,
+    ProviderType, VolumeScale,
 };
 use crate::app::{
     app_state::ChartApp,
     messages::Message,
+    resize_handle::{horizontal_resize_handle, vertical_resize_handle},
+    constants::VOLUME_CHART_HEIGHT,
 };
 
 /// Fonction helper pour le bouton de settings dans le coin
@@ -33,6 +36,228 @@ fn corner_settings_button() -> Element<'static, Message> {
             }
         })
         .into()
+}
+
+/// Composant qui regroupe toutes les sections du graphique
+/// (tools_panel, chart, y_axis, x_axis, volume_chart, volume_y_axis)
+fn view_chart_component(app: &ChartApp) -> Element<'_, Message> {
+    // Calculer le VolumeScale dynamiquement en fonction des bougies visibles
+    // Similaire à comment l'axe Y des prix fonctionne
+    let volume_scale = {
+        let (min_time, max_time) = app.chart_state.viewport.time_scale().time_range();
+        let volume_range = app.chart_state.series_manager
+            .active_series()
+            .next()
+            .and_then(|series| {
+                // D'abord essayer d'obtenir la plage pour les bougies visibles
+                let visible_range = series.data.volume_range_for_time_range(min_time..max_time);
+                
+                // Si aucune bougie visible, utiliser la plage globale comme fallback
+                visible_range.or_else(|| series.data.volume_range())
+            })
+            .map(|(_min, max)| {
+                // Toujours forcer le min à 0 pour les volumes (barres depuis le bas)
+                // Cela garantit une visualisation cohérente
+                (0.0, max.max(0.0))
+            })
+            .filter(|(_min, max)| *max > 0.0) // Filtrer les plages invalides
+            .unwrap_or((0.0, 1000.0)); // Dernier fallback si aucune série ou plage invalide
+        
+        let mut scale = VolumeScale::new(volume_range.0, volume_range.1, VOLUME_CHART_HEIGHT);
+        scale.set_height(VOLUME_CHART_HEIGHT);
+        scale
+    };
+
+    // Ligne principale : Tools (gauche) + Chart (centre) + Axe Y (droite)
+    let chart_row = row![
+        tools_panel(&app.tools_state).map(Message::ToolsPanel),
+        chart(&app.chart_state, &app.tools_state, &app.settings_state, &app.chart_style)
+            .map(Message::Chart),
+        y_axis(&app.chart_state).map(Message::YAxis)
+    ]
+    .width(Length::Fill)
+    .height(Length::Fill);
+
+    // Ligne du volume : espace (sous tools) + Volume Chart + Volume Y Axis
+    let volume_row = row![
+        container(Space::new())
+            .width(Length::Fixed(TOOLS_PANEL_WIDTH))
+            .height(Length::Fill)
+            .style(|_theme| container::Style {
+                background: Some(iced::Background::Color(Color::from_rgb(0.08, 0.08, 0.10))),
+                ..Default::default()
+            }),
+        volume_chart(&app.chart_state, volume_scale.clone()),
+        volume_y_axis(volume_scale)
+    ]
+    .width(Length::Fill)
+    .height(Length::Fixed(VOLUME_CHART_HEIGHT));
+
+    // Ligne du bas : espace comblé (sous tools) + Axe X + bouton settings (coin)
+    let x_axis_row = row![
+        container(Space::new())
+            .width(Length::Fixed(TOOLS_PANEL_WIDTH))
+            .height(Length::Fill)
+            .style(|_theme| container::Style {
+                background: Some(iced::Background::Color(Color::from_rgb(0.08, 0.08, 0.10))),
+                ..Default::default()
+            }),
+        x_axis(&app.chart_state).map(Message::XAxis),
+        corner_settings_button()
+    ]
+    .width(Length::Fill)
+    .height(Length::Fixed(X_AXIS_HEIGHT));
+
+    // Layout du composant chart complet : Chart + Volume + X Axis
+    column![
+        chart_row,
+        volume_row,
+        x_axis_row
+    ]
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .into()
+}
+
+/// Handle de redimensionnement pour le panneau de droite
+fn right_panel_resize_handle(app: &ChartApp) -> Element<'_, Message> {
+    // Largeur plus visible pour le handle
+    let handle_width = 6.0;
+    horizontal_resize_handle(handle_width, app.panels.right.is_resizing)
+}
+
+/// Section à droite du graphique
+fn view_right_panel(app: &ChartApp) -> Element<'_, Message> {
+    if !app.panels.right.visible {
+        return container(Space::new())
+            .width(Length::Fixed(0.0))
+            .height(Length::Fill)
+            .into();
+    }
+    
+    let handle_width = 6.0;
+    let panel_content_width = app.panels.right.size - handle_width;
+    
+    let panel_content = container(
+        column![
+            row![
+                text("Panneau de droite")
+                    .size(16)
+                    .color(Color::WHITE),
+                Space::new().width(Length::Fill),
+                button("✕")
+                    .on_press(Message::ToggleRightPanel)
+                    .padding([4, 8])
+                    .style(|_theme, status| {
+                        let bg_color = match status {
+                            button::Status::Hovered => Color::from_rgb(0.5, 0.2, 0.2),
+                            _ => Color::from_rgb(0.3, 0.15, 0.15),
+                        };
+                        button::Style {
+                            background: Some(iced::Background::Color(bg_color)),
+                            text_color: Color::WHITE,
+                            ..Default::default()
+                        }
+                    })
+            ]
+            .align_y(iced::Alignment::Center)
+            .spacing(10),
+            Space::new().height(Length::Fixed(10.0)),
+            text("Cette section peut contenir des informations supplémentaires, des indicateurs, ou d'autres contrôles.")
+                .size(12)
+                .color(Color::from_rgb(0.7, 0.7, 0.7))
+        ]
+        .padding(15)
+        .spacing(10)
+    )
+    .width(Length::Fixed(panel_content_width))
+    .height(Length::Fill)
+    .style(|_theme| container::Style {
+        background: Some(iced::Background::Color(Color::from_rgb(0.10, 0.10, 0.12))),
+        border: iced::Border {
+            color: Color::from_rgb(0.2, 0.2, 0.25),
+            width: 1.0,
+            radius: 0.0.into(),
+        },
+        ..Default::default()
+    });
+    
+    row![
+        right_panel_resize_handle(app),
+        panel_content
+    ]
+    .width(Length::Fixed(app.panels.right.size))
+    .height(Length::Fill)
+    .into()
+}
+
+/// Handle de redimensionnement pour le panneau du bas
+fn bottom_panel_resize_handle(app: &ChartApp) -> Element<'_, Message> {
+    // Hauteur plus visible pour le handle
+    let handle_height = 6.0;
+    vertical_resize_handle(handle_height, app.panels.bottom.is_resizing)
+}
+
+/// Section en bas du graphique
+fn view_bottom_panel(app: &ChartApp) -> Element<'_, Message> {
+    if !app.panels.bottom.visible {
+        return container(Space::new())
+            .width(Length::Fill)
+            .height(Length::Fixed(0.0))
+            .into();
+    }
+    
+    let panel_content = container(
+        column![
+            row![
+                text("Panneau du bas")
+                    .size(16)
+                    .color(Color::WHITE),
+                Space::new().width(Length::Fill),
+                button("✕")
+                    .on_press(Message::ToggleBottomPanel)
+                    .padding([4, 8])
+                    .style(|_theme, status| {
+                        let bg_color = match status {
+                            button::Status::Hovered => Color::from_rgb(0.5, 0.2, 0.2),
+                            _ => Color::from_rgb(0.3, 0.15, 0.15),
+                        };
+                        button::Style {
+                            background: Some(iced::Background::Color(bg_color)),
+                            text_color: Color::WHITE,
+                            ..Default::default()
+                        }
+                    })
+            ]
+            .align_y(iced::Alignment::Center)
+            .spacing(10),
+            Space::new().height(Length::Fixed(10.0)),
+            text("Cette section peut contenir des statistiques, des logs, ou d'autres informations contextuelles.")
+                .size(12)
+                .color(Color::from_rgb(0.7, 0.7, 0.7))
+        ]
+        .padding(15)
+        .spacing(10)
+    )
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .style(|_theme| container::Style {
+        background: Some(iced::Background::Color(Color::from_rgb(0.10, 0.10, 0.12))),
+        border: iced::Border {
+            color: Color::from_rgb(0.2, 0.2, 0.25),
+            width: 1.0,
+            radius: 0.0.into(),
+        },
+        ..Default::default()
+    });
+    
+    column![
+        bottom_panel_resize_handle(app),
+        panel_content
+    ]
+    .width(Length::Fill)
+    .height(Length::Fixed(app.panels.bottom.size))
+    .into()
 }
 
 /// Vue principale de l'application
@@ -77,36 +302,27 @@ pub fn view_main(app: &ChartApp) -> Element<'_, Message> {
         ..Default::default()
     });
 
-    // Ligne principale : Tools (gauche) + Chart (centre) + Axe Y (droite)
-    let chart_row = row![
-        tools_panel(&app.tools_state).map(Message::ToolsPanel),
-        chart(&app.chart_state, &app.tools_state, &app.settings_state, &app.chart_style)
-            .map(Message::Chart),
-        y_axis(&app.chart_state).map(Message::YAxis)
-    ]
-    .width(Length::Fill)
-    .height(Length::Fill);
+    // Zone principale : Composant chart + Panneau de droite (si visible)
+    let main_content = if app.panels.right.visible {
+        row![
+            view_chart_component(app),
+            view_right_panel(app)
+        ]
+        .width(Length::Fill)
+        .height(Length::Fill)
+    } else {
+        row![
+            view_chart_component(app)
+        ]
+        .width(Length::Fill)
+        .height(Length::Fill)
+    };
 
-    // Ligne du bas : espace comblé (sous tools) + Axe X + bouton settings (coin)
-    let x_axis_row = row![
-        container(Space::new())
-            .width(Length::Fixed(TOOLS_PANEL_WIDTH))
-            .height(Length::Fill)
-            .style(|_theme| container::Style {
-                background: Some(iced::Background::Color(Color::from_rgb(0.08, 0.08, 0.10))),
-                ..Default::default()
-            }),
-        x_axis(&app.chart_state).map(Message::XAxis),
-        corner_settings_button()
-    ]
-    .width(Length::Fill)
-    .height(Length::Fixed(X_AXIS_HEIGHT));
-
-    // Layout complet
+    // Layout complet : Header + Zone principale + Panneau du bas
     column![
         header,
-        chart_row,
-        x_axis_row
+        main_content,
+        view_bottom_panel(app)
     ]
     .width(Length::Fill)
     .height(Length::Fill)

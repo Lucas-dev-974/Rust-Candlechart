@@ -291,6 +291,39 @@ impl TimeSeries {
         result
     }
 
+    /// Retourne la plage de volume (min, max) pour toutes les bougies
+    /// Le volume minimum est toujours 0 pour une meilleure visualisation (barres depuis le bas)
+    pub fn volume_range(&self) -> Option<(f64, f64)> {
+        if self.candles.is_empty() {
+            return None;
+        }
+        
+        let result: Option<(f64, f64)> = self.candles.iter().fold(None, |acc, candle| {
+            Some(match acc {
+                None => (0.0, candle.volume), // Volume min commence à 0 pour visualisation
+                Some((_min, max)) => (0.0, max.max(candle.volume)), // Toujours commencer à 0
+            })
+        });
+        
+        result
+    }
+
+    /// Retourne la plage de volume (min, max) pour les bougies visibles
+    /// Le volume minimum est le minimum réel des bougies visibles (pas forcé à 0)
+    pub fn volume_range_for_time_range(&self, time_range: Range<i64>) -> Option<(f64, f64)> {
+        let visible = self.visible_candles(time_range);
+        if visible.is_empty() {
+            return None;
+        }
+        
+        visible.iter().fold(None, |acc, candle| {
+            Some(match acc {
+                None => (candle.volume, candle.volume), // Commencer avec le volume de la première bougie
+                Some((min, max)) => (min.min(candle.volume), max.max(candle.volume)),
+            })
+        })
+    }
+
     /// Retourne toutes les bougies de la série
     pub fn all_candles(&self) -> &[Candle] {
         &self.candles
@@ -385,8 +418,8 @@ mod tests {
     fn test_timeseries_basic() {
         let mut ts = TimeSeries::new();
 
-        ts.push(Candle::new(1000, 100.0, 105.0, 99.0, 104.0)).unwrap();
-        ts.push(Candle::new(2000, 104.0, 106.0, 103.0, 105.0)).unwrap();
+        ts.push(Candle::new(1000, 100.0, 105.0, 99.0, 104.0, 1000.0)).unwrap();
+        ts.push(Candle::new(2000, 104.0, 106.0, 103.0, 105.0, 1200.0)).unwrap();
 
         assert_eq!(ts.min_timestamp(), Some(1000));
         assert_eq!(ts.max_timestamp(), Some(2000));
@@ -397,7 +430,7 @@ mod tests {
     fn test_visible_candles() {
         let mut ts = TimeSeries::new();
         for i in 0..10 {
-            ts.push(Candle::new(i * 1000, 100.0, 105.0, 99.0, 104.0)).unwrap();
+            ts.push(Candle::new(i * 1000, 100.0, 105.0, 99.0, 104.0, 1000.0)).unwrap();
         }
 
         let visible = ts.visible_candles(2500..5500);
@@ -407,9 +440,9 @@ mod tests {
     #[test]
     fn test_price_range_cache() {
         let mut ts = TimeSeries::new();
-        ts.push(Candle::new(1000, 100.0, 105.0, 99.0, 104.0)).unwrap();
-        ts.push(Candle::new(2000, 104.0, 110.0, 103.0, 108.0)).unwrap();
-        ts.push(Candle::new(3000, 108.0, 115.0, 107.0, 112.0)).unwrap();
+        ts.push(Candle::new(1000, 100.0, 105.0, 99.0, 104.0, 1000.0)).unwrap();
+        ts.push(Candle::new(2000, 104.0, 110.0, 103.0, 108.0, 1200.0)).unwrap();
+        ts.push(Candle::new(3000, 108.0, 115.0, 107.0, 112.0, 1500.0)).unwrap();
 
         // Premier appel : doit calculer
         let range1 = ts.price_range();
@@ -424,13 +457,13 @@ mod tests {
     #[test]
     fn test_price_range_cache_invalidation() {
         let mut ts = TimeSeries::new();
-        ts.push(Candle::new(1000, 100.0, 105.0, 99.0, 104.0)).unwrap();
+        ts.push(Candle::new(1000, 100.0, 105.0, 99.0, 104.0, 1000.0)).unwrap();
         
         let range1 = ts.price_range();
         assert_eq!(range1, Some((99.0, 105.0)));
 
         // Ajouter une nouvelle bougie : le cache doit être invalidé
-        ts.push(Candle::new(2000, 110.0, 120.0, 109.0, 115.0)).unwrap();
+        ts.push(Candle::new(2000, 110.0, 120.0, 109.0, 115.0, 2000.0)).unwrap();
         
         let range2 = ts.price_range();
         assert_eq!(range2, Some((99.0, 120.0))); // Doit inclure la nouvelle bougie
@@ -440,7 +473,7 @@ mod tests {
     fn test_price_range_for_time_range_cache() {
         let mut ts = TimeSeries::new();
         for i in 0..10 {
-            ts.push(Candle::new(i * 1000, 100.0 + i as f64, 105.0 + i as f64, 99.0 + i as f64, 104.0 + i as f64)).unwrap();
+            ts.push(Candle::new(i * 1000, 100.0 + i as f64, 105.0 + i as f64, 99.0 + i as f64, 104.0 + i as f64, 1000.0 + i as f64 * 10.0)).unwrap();
         }
 
         let time_range = 2000..6000;
@@ -461,20 +494,20 @@ mod tests {
         let mut ts = TimeSeries::new();
         
         // Ajouter une bougie à t=100
-        ts.update_or_append_candle(Candle::new(100, 100.0, 105.0, 99.0, 104.0)).unwrap();
+        ts.update_or_append_candle(Candle::new(100, 100.0, 105.0, 99.0, 104.0, 1000.0)).unwrap();
         assert_eq!(ts.len(), 1);
         assert_eq!(ts.min_timestamp(), Some(100));
         assert_eq!(ts.max_timestamp(), Some(100));
         
         // Ajouter une bougie à t=160 (plus récente)
-        ts.update_or_append_candle(Candle::new(160, 104.0, 106.0, 103.0, 105.0)).unwrap();
+        ts.update_or_append_candle(Candle::new(160, 104.0, 106.0, 103.0, 105.0, 1200.0)).unwrap();
         assert_eq!(ts.len(), 2);
         assert_eq!(ts.min_timestamp(), Some(100));
         assert_eq!(ts.max_timestamp(), Some(160));
         
         // Simuler une bougie plus ancienne (t=100) arrivant après (out-of-order)
         // Cela simule le cas où une requête HTTP plus ancienne se termine après une plus récente
-        ts.update_or_append_candle(Candle::new(100, 100.5, 105.5, 99.5, 104.5)).unwrap();
+        ts.update_or_append_candle(Candle::new(100, 100.5, 105.5, 99.5, 104.5, 1100.0)).unwrap();
         
         // Vérifier que l'ordre chronologique est maintenu
         assert_eq!(ts.len(), 2); // Ne doit pas créer de doublon
@@ -497,15 +530,15 @@ mod tests {
         let mut ts = TimeSeries::new();
         
         // Créer une série: t=100, t=200, t=300
-        ts.push(Candle::new(100, 100.0, 105.0, 99.0, 104.0)).unwrap();
-        ts.push(Candle::new(200, 104.0, 106.0, 103.0, 105.0)).unwrap();
-        ts.push(Candle::new(300, 105.0, 107.0, 104.0, 106.0)).unwrap();
+        ts.push(Candle::new(100, 100.0, 105.0, 99.0, 104.0, 1000.0)).unwrap();
+        ts.push(Candle::new(200, 104.0, 106.0, 103.0, 105.0, 1200.0)).unwrap();
+        ts.push(Candle::new(300, 105.0, 107.0, 104.0, 106.0, 1500.0)).unwrap();
         
         assert_eq!(ts.len(), 3);
         assert_eq!(ts.max_timestamp(), Some(300));
         
         // Simuler une bougie à t=150 arrivant après t=300 (out-of-order)
-        ts.update_or_append_candle(Candle::new(150, 103.5, 105.5, 102.5, 104.5)).unwrap();
+        ts.update_or_append_candle(Candle::new(150, 103.5, 105.5, 102.5, 104.5, 1100.0)).unwrap();
         
         // Vérifier que l'ordre chronologique est maintenu
         assert_eq!(ts.len(), 4);

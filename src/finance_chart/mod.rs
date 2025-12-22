@@ -30,6 +30,8 @@ pub mod messages;
 pub mod realtime;
 pub mod binance_provider;
 pub mod provider_config;
+pub mod volume_chart;
+pub mod volume_axis;
 
 pub use state::ChartState;
 pub use widget::chart;
@@ -43,4 +45,7 @@ pub use messages::{ChartMessage, YAxisMessage, XAxisMessage, ToolsPanelMessage, 
 pub use realtime::UpdateResult;
 pub use binance_provider::BinanceProvider;
 pub use provider_config::{ProviderConfigManager, ProviderType};
+pub use volume_chart::volume_chart;
+pub use volume_axis::volume_y_axis;
+pub use scale::VolumeScale;
 

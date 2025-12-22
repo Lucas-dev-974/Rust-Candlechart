@@ -14,6 +14,7 @@ use crate::app::{
     window_manager::{WindowManager, WindowType},
     messages::Message,
     data_loading,
+    panel_state::PanelsState,
 };
 
 /// Application principale - possède directement tout l'état (pas de Rc<RefCell>)
@@ -43,6 +44,9 @@ pub struct ChartApp {
     
     // Compteur de version pour forcer le re-render du canvas
     pub render_version: u64,
+    
+    // État des panneaux latéraux
+    pub panels: PanelsState,
 }
 
 impl ChartApp {
@@ -122,6 +126,7 @@ impl ChartApp {
                 binance_provider,
                 realtime_enabled: true, // Activer le mode temps réel par défaut
                 render_version: 0,
+                panels: PanelsState::new(),
             },
             Task::batch(vec![
                 open_task.map(Message::MainWindowOpened),

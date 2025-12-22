@@ -11,6 +11,8 @@ pub mod data_loading;
 pub mod realtime;
 pub mod handlers;
 pub mod views;
+pub mod panel_state;
+pub mod resize_handle;
 
 pub use messages::Message;
 pub use app_state::ChartApp;

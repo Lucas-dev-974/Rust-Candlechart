@@ -193,10 +193,13 @@ impl BinanceProvider {
         let low = parse_price(3, "low")?;
         let close = parse_price(4, "close")?;
 
+        // Parser le volume (index 5 dans le tableau Binance)
+        let volume = parse_price(5, "volume")?;
+
         // Convertir timestamp millisecondes → secondes
         let timestamp = open_time_ms / 1000;
 
-        Ok(Candle::new(timestamp, open, high, low, close))
+        Ok(Candle::new(timestamp, open, high, low, close, volume))
     }
 
     /// Exécute une future async, en utilisant le runtime existant ou en créant un nouveau

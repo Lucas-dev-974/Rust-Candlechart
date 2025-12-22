@@ -3,6 +3,7 @@ use iced::{Color, Point, Size};
 
 use super::super::core::Candle;
 use super::super::viewport::Viewport;
+use super::bar_sizing::{calculate_bar_width, calculate_candle_period};
 
 /// Couleurs par défaut pour les bougies
 pub struct CandleColors {
@@ -77,44 +78,10 @@ pub fn render_candlesticks(
 
     let colors = colors.unwrap_or_default();
 
-    // Constantes pour le dimensionnement des bougies
-    const MIN_GAP: f32 = 3.0;      // Espacement minimum entre bougies
-    const MAX_WIDTH: f32 = 20.0;   // Largeur maximum d'une bougie
-    const MIN_WIDTH: f32 = 1.0;    // Largeur minimum d'une bougie
-
-    // Détecter l'intervalle de temps entre les bougies (période)
-    // Utilise les deux premières bougies pour déterminer la période
-    let candle_period = if candles.len() >= 2 {
-        (candles[1].timestamp - candles[0].timestamp).abs()
-    } else {
-        3600 // Par défaut 1 heure si une seule bougie
-    };
-
-    // Calculer l'espacement en pixels basé sur l'échelle temporelle (FIXE lors du pan)
-    // C'est le nombre de pixels que représente une période de bougie
+    // Calculer la largeur des bougies via le module bar_sizing
+    let candle_period = calculate_candle_period(candles);
     let (min_time, max_time) = viewport.time_scale().time_range();
-    let time_range = (max_time - min_time) as f64;
-    let pixels_per_second = viewport.width() as f64 / time_range;
-    let spacing = (candle_period as f64 * pixels_per_second) as f32;
-    
-    // Ratio adaptatif : plus il y a de bougies, plus le ratio diminue
-    // Cela évite que les bougies s'agglutinent en zoom out
-    let width_ratio = if spacing > 25.0 {
-        1.0  // Très zoom in : bougies pleine largeur (100%)
-    } else if spacing > 15.0 {
-        0.8  // Zoom in : bougies larges (80%)
-    } else if spacing > 8.0 {
-        0.6  // Zoom moyen : bougies moyennes (60%)
-    } else if spacing > 5.0 {
-        0.4  // Zoom out : bougies fines (40%)
-    } else {
-        0.3  // Zoom très out : bougies très fines (30%)
-    };
-    
-    // Calcul final : ratio adaptatif, gap minimum garanti, dans les limites min/max
-    let candle_width = (spacing * width_ratio)
-        .min(spacing - MIN_GAP)
-        .clamp(MIN_WIDTH, MAX_WIDTH);
+    let candle_width = calculate_bar_width(candle_period, max_time - min_time, viewport.width());
 
     // Dessiner uniquement les bougies visibles
     for candle in candles {

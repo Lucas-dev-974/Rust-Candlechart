@@ -59,5 +59,15 @@ pub enum Message {
     UpdateProviderToken(ProviderType, String),
     ApplyProviderConfig,
     CancelProviderConfig,
+    
+    // === Messages des panneaux latéraux ===
+    ToggleRightPanel,
+    ToggleBottomPanel,
+    StartResizeRightPanel(f32),
+    StartResizeBottomPanel(f32),
+    UpdateResizeRightPanel(f32),
+    UpdateResizeBottomPanel(f32),
+    EndResizeRightPanel,
+    EndResizeBottomPanel,
 }
 

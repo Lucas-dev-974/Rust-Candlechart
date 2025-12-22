@@ -338,6 +338,40 @@ impl ChartApp {
                 self.apply_realtime_updates(results);
                 Task::none()
             }
+            
+            // === Gestion des panneaux latéraux ===
+            Message::ToggleRightPanel => {
+                self.panels.right.toggle_visibility();
+                Task::none()
+            }
+            Message::ToggleBottomPanel => {
+                self.panels.bottom.toggle_visibility();
+                Task::none()
+            }
+            Message::StartResizeRightPanel(pos) => {
+                self.panels.right.start_resize(pos);
+                Task::none()
+            }
+            Message::StartResizeBottomPanel(pos) => {
+                self.panels.bottom.start_resize(pos);
+                Task::none()
+            }
+            Message::UpdateResizeRightPanel(pos) => {
+                self.panels.right.update_resize(pos, true);
+                Task::none()
+            }
+            Message::UpdateResizeBottomPanel(pos) => {
+                self.panels.bottom.update_resize(pos, false);
+                Task::none()
+            }
+            Message::EndResizeRightPanel => {
+                self.panels.right.end_resize();
+                Task::none()
+            }
+            Message::EndResizeBottomPanel => {
+                self.panels.bottom.end_resize();
+                Task::none()
+            }
         }
     }
     
