@@ -15,9 +15,10 @@ use crate::app::{
     window_manager::{WindowManager, WindowType},
     messages::Message,
     data_loading,
-    panel_state::PanelsState,
+    panel_state::{PanelsState, MIN_PANEL_SIZE},
     bottom_panel_sections::BottomPanelSectionsState,
     account_type::AccountTypeState,
+    panel_persistence::PanelPersistenceState,
 };
 
 /// Application principale - possède directement tout l'état (pas de Rc<RefCell>)
@@ -56,6 +57,10 @@ pub struct ChartApp {
     
     // État du type de compte
     pub account_type: AccountTypeState,
+    
+    // État de connexion au provider
+    pub provider_connection_status: Option<bool>, // None = non testé, Some(true) = connecté, Some(false) = non connecté
+    pub provider_connection_testing: bool, // Indique si un test de connexion est en cours
 }
 
 impl ChartApp {
@@ -135,15 +140,59 @@ impl ChartApp {
                 binance_provider,
                 realtime_enabled: true, // Activer le mode temps réel par défaut
                 render_version: 0,
-                panels: PanelsState::new(),
-                bottom_panel_sections: BottomPanelSectionsState::new(),
+                panels: Self::load_panels_state(),
+                bottom_panel_sections: Self::load_bottom_panel_sections(),
                 account_type: AccountTypeState::new(),
+                provider_connection_status: None,
+                provider_connection_testing: false,
             },
             Task::batch(vec![
                 open_task.map(Message::MainWindowOpened),
                 load_series_task,
             ]),
         )
+    }
+    
+    /// Charge l'état des panneaux depuis le fichier
+    fn load_panels_state() -> PanelsState {
+        match PanelPersistenceState::load_from_file("panel_state.json") {
+            Ok(state) => {
+                println!("✅ État des panneaux chargé depuis panel_state.json");
+                // Restaurer les valeurs par défaut pour les champs non sérialisés
+                let mut panels = state.panels;
+                // Restaurer les valeurs pour le panneau de droite
+                panels.right.min_size = MIN_PANEL_SIZE;
+                panels.right.max_size = 500.0;
+                panels.right.is_resizing = false;
+                panels.right.resize_start = None;
+                panels.right.focused = false;
+                // Restaurer les valeurs pour le panneau du bas
+                panels.bottom.min_size = MIN_PANEL_SIZE;
+                panels.bottom.max_size = 400.0;
+                panels.bottom.is_resizing = false;
+                panels.bottom.resize_start = None;
+                panels.bottom.focused = false;
+                panels
+            }
+            Err(_) => {
+                PanelsState::new()
+            }
+        }
+    }
+    
+    /// Charge l'état des sections du panneau du bas depuis le fichier
+    fn load_bottom_panel_sections() -> BottomPanelSectionsState {
+        match PanelPersistenceState::load_from_file("panel_state.json") {
+            Ok(state) => {
+                println!("✅ Section active du panneau chargée depuis panel_state.json");
+                BottomPanelSectionsState {
+                    active_section: state.active_section,
+                }
+            }
+            Err(_) => {
+                BottomPanelSectionsState::new()
+            }
+        }
     }
 
     pub fn title(&self, window_id: window::Id) -> String {

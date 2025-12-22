@@ -278,73 +278,114 @@ fn view_bottom_panel_orders(_app: &ChartApp) -> Element<'_, Message> {
 fn view_bottom_panel_account(app: &ChartApp) -> Element<'_, Message> {
     let is_demo_mode = app.account_type.is_demo();
     let is_real_mode = app.account_type.is_real();
+    let account_type_name = app.account_type.account_type.display_name();
     let account_type_desc = app.account_type.account_type.description();
     
     // Informations sur le provider actif
     let provider_name = app.provider_config.active_provider.display_name();
-    let provider_info = if let Some(config) = app.provider_config.active_config() {
-        if config.api_token.is_some() {
-            format!("{} (Token configuré)", provider_name)
-        } else {
-            format!("{} (API publique)", provider_name)
-        }
+    
+    // Label à afficher : "Démo" en mode paper, sinon le nom du provider
+    let provider_label = if is_demo_mode {
+        String::from("Démo")
     } else {
         provider_name.to_string()
     };
     
-    // Séparateur visuel
-    let separator = || container(Space::new().height(1))
-        .width(Length::Fill)
-        .style(|_theme| container::Style {
-            background: Some(iced::Background::Color(Color::from_rgb(0.3, 0.3, 0.35))),
-            ..Default::default()
-        });
+    // Déterminer le statut de connexion pour la pastille
+    let is_connected = if is_real_mode {
+        app.provider_connection_status.unwrap_or(false)
+    } else {
+        true // En mode paper, considéré comme "connecté" (pas de connexion nécessaire)
+    };
     
-    container(
+    // Couleur de la pastille selon le statut
+    let status_color = if is_connected {
+        Color::from_rgb(0.0, 0.8, 0.0) // Vert si connecté
+    } else {
+        Color::from_rgb(0.8, 0.0, 0.0) // Rouge si non connecté
+    };
+    
+    // Style pour les cartes de section
+    let section_card_style = |_theme: &iced::Theme| container::Style {
+        background: Some(iced::Background::Color(Color::from_rgb(0.12, 0.12, 0.15))),
+        border: iced::Border {
+            color: Color::from_rgb(0.2, 0.2, 0.25),
+            width: 1.0,
+            radius: 6.0.into(),
+        },
+        ..Default::default()
+    };
+    
+    // Section "Type de compte"
+    let account_type_section = container(
         column![
-            // Titre
-            text("Compte")
-                .size(18)
-                .color(Color::WHITE),
-            Space::new().height(Length::Fixed(15.0)),
-            
-            // Switch pour basculer entre démo et réel
+            // En-tête de section
             row![
-                checkbox(is_demo_mode)
-                    .on_toggle(move |_| Message::ToggleAccountType),
-                text("Compte paper")
+                text("Type de compte")
                     .size(14)
-                    .color(Color::WHITE),
+                    .color(colors::TEXT_PRIMARY),
+                Space::new().width(Length::Fill),
+                // Badge du type de compte
+                container(
+                    text(account_type_name)
+                        .size(11)
+                        .color(if is_real_mode {
+                            Color::from_rgb(1.0, 0.7, 0.7)
+                        } else {
+                            Color::from_rgb(0.7, 0.9, 0.7)
+                        })
+                )
+                .padding([3, 8])
+                .style(move |_theme| {
+                    let is_real = is_real_mode;
+                    container::Style {
+                        background: Some(iced::Background::Color(if is_real {
+                            Color::from_rgb(0.3, 0.15, 0.15)
+                        } else {
+                            Color::from_rgb(0.15, 0.3, 0.15)
+                        })),
+                        border: iced::Border {
+                            color: if is_real {
+                                Color::from_rgb(0.8, 0.4, 0.4)
+                            } else {
+                                Color::from_rgb(0.4, 0.8, 0.4)
+                            },
+                            width: 1.0,
+                            radius: 4.0.into(),
+                        },
+                        ..Default::default()
+                    }
+                })
             ]
-            .spacing(10)
-            .align_y(iced::Alignment::Center),
+            .align_y(iced::Alignment::Center)
+            .width(Length::Fill),
             
-            Space::new().height(Length::Fixed(8.0)),
+            Space::new().height(Length::Fixed(12.0)),
             
             // Description du mode actuel
             container(
                 text(account_type_desc)
-                    .size(12)
+                    .size(11)
                     .color(if is_real_mode {
-                        Color::from_rgb(1.0, 0.7, 0.7) // Rouge clair pour le mode réel (attention)
+                        Color::from_rgb(1.0, 0.7, 0.7)
                     } else {
-                        Color::from_rgb(0.7, 0.9, 0.7) // Vert clair pour le mode démo (sécurisé)
+                        Color::from_rgb(0.7, 0.9, 0.7)
                     })
             )
-            .padding([5, 10])
+            .padding([8, 10])
             .style(move |_theme| {
                 let is_real = is_real_mode;
                 container::Style {
                     background: Some(iced::Background::Color(if is_real {
-                        Color::from_rgb(0.3, 0.15, 0.15) // Fond rouge foncé pour mode réel
+                        Color::from_rgb(0.25, 0.12, 0.12)
                     } else {
-                        Color::from_rgb(0.15, 0.3, 0.15) // Fond vert foncé pour mode démo
+                        Color::from_rgb(0.12, 0.25, 0.12)
                     })),
                     border: iced::Border {
                         color: if is_real {
-                            Color::from_rgb(0.8, 0.4, 0.4)
+                            Color::from_rgb(0.6, 0.3, 0.3)
                         } else {
-                            Color::from_rgb(0.4, 0.8, 0.4)
+                            Color::from_rgb(0.3, 0.6, 0.3)
                         },
                         width: 1.0,
                         radius: 4.0.into(),
@@ -352,29 +393,77 @@ fn view_bottom_panel_account(app: &ChartApp) -> Element<'_, Message> {
                     ..Default::default()
                 }
             }),
-            
-            Space::new().height(Length::Fixed(15.0)),
-            separator(),
-            Space::new().height(Length::Fixed(15.0)),
-            
-            // Informations sur le provider
-            text("Provider actif:")
-                .size(14)
-                .color(Color::from_rgb(0.9, 0.9, 0.9)),
-            Space::new().height(Length::Fixed(5.0)),
-            text(provider_info)
-                .size(12)
-                .color(Color::from_rgb(0.7, 0.7, 0.9)),
-            
         ]
-        .padding(15)
-        .spacing(10)
+        .padding(12)
+        .spacing(8)
+    )
+    .style(section_card_style);
+    
+    // Layout principal
+    container(
+        scrollable(
+            column![
+                // Header avec titre, provider avec pastille, et switch
+                row![
+                    // Titre avec provider et pastille de statut
+                    row![
+                        text("Compte")
+                            .size(20)
+                            .color(colors::TEXT_PRIMARY),
+                        Space::new().width(Length::Fixed(10.0)),
+                        text(format!("• {}", provider_label))
+                            .size(14)
+                            .color(colors::TEXT_SECONDARY),
+                        Space::new().width(Length::Fixed(8.0)),
+                        // Pastille de statut de connexion
+                        container(Space::new())
+                            .width(Length::Fixed(10.0))
+                            .height(Length::Fixed(10.0))
+                            .style(move |_theme| {
+                                let color = status_color;
+                                container::Style {
+                                    background: Some(iced::Background::Color(color)),
+                                    border: iced::Border {
+                                        color: color,
+                                        width: 0.0,
+                                        radius: 5.0.into(), // Cercle parfait
+                                    },
+                                    ..Default::default()
+                                }
+                            }),
+                    ]
+                    .align_y(iced::Alignment::Center),
+                    Space::new().width(Length::Fill),
+                    // Switch pour basculer entre démo et réel
+                    row![
+                        checkbox(is_demo_mode)
+                            .on_toggle(move |_| Message::ToggleAccountType),
+                        text("Mode Paper Trading")
+                            .size(13)
+                            .color(colors::TEXT_SECONDARY),
+                    ]
+                    .spacing(8)
+                    .align_y(iced::Alignment::Center),
+                ]
+                .align_y(iced::Alignment::Center)
+                .width(Length::Fill),
+                
+                Space::new().height(Length::Fixed(20.0)),
+                
+                // Section Type de compte
+                account_type_section,
+            ]
+            .spacing(0)
+            .width(Length::Fill)
+        )
         .width(Length::Fill)
+        .height(Length::Fill)
     )
     .width(Length::Fill)
     .height(Length::Fill)
+    .padding(20)
     .style(|_theme| container::Style {
-        background: Some(iced::Background::Color(Color::from_rgb(0.10, 0.10, 0.12))),
+        background: Some(iced::Background::Color(colors::BACKGROUND_MEDIUM)),
         ..Default::default()
     })
     .into()
@@ -699,6 +788,38 @@ pub fn view_provider_config(app: &ChartApp) -> Element<'_, Message> {
             .cloned()
             .unwrap_or_default();
         
+        // Récupérer le token actuel (depuis editing ou config)
+        let actual_token = if current_token.is_empty() {
+            app.provider_config
+                .providers
+                .get(&provider_type)
+                .and_then(|c| c.api_token.clone())
+                .unwrap_or_default()
+        } else {
+            current_token.clone()
+        };
+        
+        let has_token = !actual_token.is_empty();
+        
+        // Déterminer l'état de connexion pour le provider actif
+        let (connection_status_text, is_connected) = if is_active {
+            if let Some(connection_status) = app.provider_connection_status {
+                if connection_status {
+                    (String::from("Connecté"), true)
+                } else {
+                    (String::from("Non connecté"), false)
+                }
+            } else if app.provider_connection_testing {
+                (String::from("Test en cours..."), false)
+            } else if has_token {
+                (String::from("Non testé"), false)
+            } else {
+                (String::from("Non connecté"), false)
+            }
+        } else {
+            (String::from(""), false)
+        };
+        
         let token_input = text_input("API Token (optionnel)", &current_token)
             .on_input(move |token| Message::UpdateProviderToken(provider_type, token))
             .padding(8);
@@ -713,23 +834,90 @@ pub fn view_provider_config(app: &ChartApp) -> Element<'_, Message> {
                 .style(view_styles::icon_button_style)
         };
 
-        let provider_card = container(
-            column![
-                row![
-                    provider_name,
-                    Space::new().width(Length::Fill),
-                    select_btn
-                ]
-                .align_y(iced::Alignment::Center)
-                .spacing(10),
-                description,
-                Space::new().height(Length::Fixed(5.0)),
-                token_input,
+        let mut provider_card_content = column![
+            row![
+                provider_name,
+                Space::new().width(Length::Fill),
+                select_btn
             ]
-            .spacing(8)
+            .align_y(iced::Alignment::Center)
+            .spacing(10),
+            description,
+            Space::new().height(Length::Fixed(5.0)),
+            token_input,
+        ]
+        .spacing(8);
+        
+        // Ajouter le statut de connexion et le bouton de test pour le provider actif
+        if is_active {
+            // Badge de statut de connexion
+            let connection_badge: Element<'_, Message> = container(
+                text(connection_status_text.clone())
+                    .size(11)
+                    .color(if is_connected {
+                        Color::from_rgb(0.7, 0.9, 0.7) // Vert si connecté
+                    } else {
+                        Color::from_rgb(1.0, 0.7, 0.7) // Rouge si non connecté
+                    })
+            )
+            .padding([3, 8])
+            .style(move |_theme: &iced::Theme| {
+                let connected: bool = is_connected;
+                container::Style {
+                    background: Some(iced::Background::Color(if connected {
+                        Color::from_rgb(0.15, 0.3, 0.15) // Fond vert si connecté
+                    } else {
+                        Color::from_rgb(0.3, 0.15, 0.15) // Fond rouge si non connecté
+                    })),
+                    border: iced::Border {
+                        color: if connected {
+                            Color::from_rgb(0.4, 0.8, 0.4)
+                        } else {
+                            Color::from_rgb(0.8, 0.4, 0.4)
+                        },
+                        width: 1.0,
+                        radius: 4.0.into(),
+                    },
+                    ..Default::default()
+                }
+            })
+            .into();
+            
+            provider_card_content = provider_card_content
+                .push(Space::new().height(Length::Fixed(10.0)))
+                .push(
+                    row![
+                        text("Statut de connexion:")
+                            .size(12)
+                            .color(colors::TEXT_SECONDARY),
+                        Space::new().width(Length::Fill),
+                        connection_badge
+                    ]
+                    .align_y(iced::Alignment::Center)
+                )
+                .push(Space::new().height(Length::Fixed(8.0)))
+                .push(
+                    button(
+                        text(if app.provider_connection_testing {
+                            "Test en cours..."
+                        } else {
+                            "Tester la connexion"
+                        })
+                        .size(12)
+                    )
+                    .on_press(Message::TestProviderConnection)
+                    .padding([6, 12])
+                    .style(if app.provider_connection_testing {
+                        view_styles::icon_button_style
+                    } else {
+                        view_styles::success_button_style
+                    })
+                );
+        }
+
+        let provider_card = container(provider_card_content)
             .padding(15)
-        )
-        .style(view_styles::provider_card_style(is_active));
+            .style(view_styles::provider_card_style(is_active));
 
         provider_list = provider_list.push(provider_card);
     }

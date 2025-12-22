@@ -2,6 +2,8 @@
 //!
 //! Gère la visibilité, les dimensions et l'état de redimensionnement des panneaux.
 
+use serde::{Deserialize, Serialize};
+
 /// Taille minimale d'un panneau (juste la poignée visible)
 pub const MIN_PANEL_SIZE: f32 = 6.0;
 
@@ -9,21 +11,26 @@ pub const MIN_PANEL_SIZE: f32 = 6.0;
 pub const SNAP_THRESHOLD: f32 = 20.0;
 
 /// État d'un panneau (droite ou bas)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PanelState {
     /// Indique si le panneau est visible
     pub visible: bool,
     /// Dimension actuelle du panneau (largeur pour droite, hauteur pour bas)
     pub size: f32,
     /// Dimension minimale du panneau
+    #[serde(skip)]
     pub min_size: f32,
     /// Dimension maximale du panneau
+    #[serde(skip)]
     pub max_size: f32,
     /// Indique si le panneau est en cours de redimensionnement
+    #[serde(skip)]
     pub is_resizing: bool,
     /// Position de départ du redimensionnement
+    #[serde(skip)]
     pub resize_start: Option<f32>,
     /// Indique si le panneau a le focus (les événements du chart sont désactivés)
+    #[serde(skip)]
     pub focused: bool,
 }
 
@@ -100,7 +107,7 @@ impl PanelState {
 }
 
 /// État de tous les panneaux
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PanelsState {
     /// Panneau de droite
     pub right: PanelState,
@@ -116,6 +123,20 @@ impl PanelsState {
             right: PanelState::new(RIGHT_PANEL_WIDTH, MIN_PANEL_SIZE, 500.0),
             bottom: PanelState::new(BOTTOM_PANEL_HEIGHT, MIN_PANEL_SIZE, 400.0),
         }
+    }
+    
+    /// Charge l'état depuis un fichier
+    pub fn load_from_file(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let json = std::fs::read_to_string(path)?;
+        let state: PanelsState = serde_json::from_str(&json)?;
+        Ok(state)
+    }
+    
+    /// Sauvegarde l'état dans un fichier
+    pub fn save_to_file(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let json = serde_json::to_string_pretty(self)?;
+        std::fs::write(path, json)?;
+        Ok(())
     }
     
     /// Retourne true si un panneau a le focus

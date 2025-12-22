@@ -103,9 +103,6 @@ impl<'a> ChartProgram<'a> {
             let base_bearish = self.chart_style.bearish_color.to_iced();
             let base_wick = self.chart_style.wick_color.to_iced();
             
-            // Créer des variantes en fonction de l'index de la série
-            let hue_shift = (series_idx as f32) * 0.15; // Décalage de teinte
-            
             // Pour les séries supplémentaires, on peut modifier légèrement les couleurs
             // Ici on utilise une approche simple : assombrir/éclaircir selon l'index
             let factor = 1.0 - (series_idx as f32 * 0.1).min(0.3);

@@ -1,0 +1,13 @@
+{
+  "panels": {
+    "right": {
+      "visible": true,
+      "size": 200.0
+    },
+    "bottom": {
+      "visible": true,
+      "size": 400.0
+    }
+  },
+  "active_section": "Account"
+}

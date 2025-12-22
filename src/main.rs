@@ -367,14 +367,20 @@ impl ChartApp {
             }
             Message::EndResizeRightPanel => {
                 self.panels.right.end_resize();
+                // Sauvegarder l'état des panneaux après redimensionnement
+                self.save_panel_state();
                 Task::none()
             }
             Message::EndResizeBottomPanel => {
                 self.panels.bottom.end_resize();
+                // Sauvegarder l'état des panneaux après redimensionnement
+                self.save_panel_state();
                 Task::none()
             }
             Message::SelectBottomPanelSection(section) => {
                 self.bottom_panel_sections.set_active_section(section);
+                // Sauvegarder l'état complet des panneaux
+                self.save_panel_state();
                 Task::none()
             }
             Message::SetRightPanelFocus(focused) => {
@@ -402,6 +408,23 @@ impl ChartApp {
             }
             Message::SetAccountType(account_type) => {
                 self.account_type.set_account_type(account_type);
+                Task::none()
+            }
+            
+            Message::TestProviderConnection => {
+                self.provider_connection_testing = true;
+                self.provider_connection_status = None;
+                crate::app::realtime::test_provider_connection(self)
+            }
+            
+            Message::ProviderConnectionTestComplete(result) => {
+                self.provider_connection_testing = false;
+                self.provider_connection_status = Some(result.is_ok());
+                if let Err(e) = &result {
+                    eprintln!("❌ Test de connexion échoué: {}", e);
+                } else {
+                    println!("✅ Connexion au provider réussie");
+                }
                 Task::none()
             }
         }
@@ -438,7 +461,18 @@ impl ChartApp {
     fn apply_realtime_updates(&mut self, results: Vec<(SeriesId, String, Result<Option<Candle>, String>)>) {
         crate::app::realtime::apply_realtime_updates(self, results)
     }
-
+    
+    /// Sauvegarde l'état complet des panneaux
+    fn save_panel_state(&self) {
+        use crate::app::panel_persistence::PanelPersistenceState;
+        let state = PanelPersistenceState {
+            panels: self.panels.clone(),
+            active_section: self.bottom_panel_sections.active_section,
+        };
+        if let Err(e) = state.save_to_file("panel_state.json") {
+            eprintln!("⚠️ Erreur sauvegarde état panneaux: {}", e);
+        }
+    }
 
     fn view(&self, window_id: window::Id) -> Element<'_, Message> {
         use crate::app::views;

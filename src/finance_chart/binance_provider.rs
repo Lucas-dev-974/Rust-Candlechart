@@ -307,6 +307,80 @@ impl BinanceProvider {
 
         Ok(candles)
     }
+
+    /// Teste la connexion à l'API Binance
+    ///
+    /// Effectue une requête simple pour vérifier que le token API est valide et que les appels API fonctionnent.
+    /// Utilise l'endpoint `/api/v3/ping` qui est léger et rapide.
+    ///
+    /// # Retourne
+    /// - `Ok(())` si la connexion fonctionne
+    /// - `Err(ProviderError)` si la connexion échoue
+    pub async fn test_connection(&self) -> Result<(), ProviderError> {
+        let url = format!("{}/ping", self.base_url);
+        
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Network(e.to_string()))?;
+
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            let status = response.status().as_u16();
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Erreur inconnue".to_string());
+            Err(ProviderError::Api {
+                status: Some(status),
+                message: error_text,
+            })
+        }
+    }
+
+    /// Teste la connexion avec authentification (si un token est configuré)
+    ///
+    /// Utilise l'endpoint `/api/v3/account` qui nécessite une authentification.
+    /// Cela confirme que le token API est valide et fonctionnel.
+    ///
+    /// # Retourne
+    /// - `Ok(())` si le token est valide et que la connexion fonctionne
+    /// - `Err(ProviderError)` si le token est invalide ou si la connexion échoue
+    pub async fn test_authenticated_connection(&self) -> Result<(), ProviderError> {
+        // Si pas de token, on ne peut pas tester l'authentification
+        if self.api_token.is_none() {
+            return Err(ProviderError::Api {
+                status: None,
+                message: "Aucun token API configuré".to_string(),
+            });
+        }
+
+        let url = format!("{}/account", self.base_url);
+        
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Network(e.to_string()))?;
+
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            let status = response.status().as_u16();
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Erreur inconnue".to_string());
+            Err(ProviderError::Api {
+                status: Some(status),
+                message: error_text,
+            })
+        }
+    }
 }
 
 impl Default for BinanceProvider {

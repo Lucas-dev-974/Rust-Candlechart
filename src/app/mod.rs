@@ -16,6 +16,7 @@ pub mod panel_state;
 pub mod resize_handle;
 pub mod bottom_panel_sections;
 pub mod account_type;
+pub mod panel_persistence;
 
 pub use messages::Message;
 pub use app_state::ChartApp;

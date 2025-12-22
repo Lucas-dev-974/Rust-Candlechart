@@ -77,6 +77,10 @@ pub enum Message {
     ToggleAccountType,
     SetAccountType(crate::app::account_type::AccountType),
     
+    // === Messages de test de connexion au provider ===
+    TestProviderConnection,
+    ProviderConnectionTestComplete(Result<(), String>),
+    
     // === Messages de focus des panneaux ===
     SetRightPanelFocus(bool),
     SetBottomPanelFocus(bool),

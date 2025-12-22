@@ -3,8 +3,10 @@
 //! Ce module définit les différentes sections disponibles dans le panneau du bas
 //! et leur état.
 
+use serde::{Deserialize, Serialize};
+
 /// Sections disponibles dans le panneau du bas
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BottomPanelSection {
     /// Section par défaut (statistiques/informations)
     Overview,
@@ -43,7 +45,7 @@ impl BottomPanelSection {
 }
 
 /// État des sections du panneau du bas
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BottomPanelSectionsState {
     /// Section actuellement active
     pub active_section: BottomPanelSection,
