@@ -136,6 +136,18 @@ fn view_right_panel(app: &ChartApp) -> Element<'_, Message> {
     }
     
     let handle_width = 6.0;
+    let is_snapped = app.panels.right.is_snapped();
+    
+    // Si le panneau est snappé, on affiche seulement la poignée
+    if is_snapped {
+        return row![
+            right_panel_resize_handle(app)
+        ]
+        .width(Length::Fixed(handle_width))
+        .height(Length::Fill)
+        .into();
+    }
+    
     let panel_content_width = app.panels.right.size - handle_width;
     
     let panel_content = container(
@@ -144,21 +156,6 @@ fn view_right_panel(app: &ChartApp) -> Element<'_, Message> {
                 text("Panneau de droite")
                     .size(16)
                     .color(Color::WHITE),
-                Space::new().width(Length::Fill),
-                button("✕")
-                    .on_press(Message::ToggleRightPanel)
-                    .padding([4, 8])
-                    .style(|_theme, status| {
-                        let bg_color = match status {
-                            button::Status::Hovered => Color::from_rgb(0.5, 0.2, 0.2),
-                            _ => Color::from_rgb(0.3, 0.15, 0.15),
-                        };
-                        button::Style {
-                            background: Some(iced::Background::Color(bg_color)),
-                            text_color: Color::WHITE,
-                            ..Default::default()
-                        }
-                    })
             ]
             .align_y(iced::Alignment::Center)
             .spacing(10),
@@ -207,27 +204,27 @@ fn view_bottom_panel(app: &ChartApp) -> Element<'_, Message> {
             .into();
     }
     
+    let handle_height = 6.0;
+    let is_snapped = app.panels.bottom.is_snapped();
+    
+    // Si le panneau est snappé, on affiche seulement la poignée
+    if is_snapped {
+        return column![
+            bottom_panel_resize_handle(app)
+        ]
+        .width(Length::Fill)
+        .height(Length::Fixed(handle_height))
+        .into();
+    }
+    
+    let panel_content_height = app.panels.bottom.size - handle_height;
+    
     let panel_content = container(
         column![
             row![
                 text("Panneau du bas")
                     .size(16)
                     .color(Color::WHITE),
-                Space::new().width(Length::Fill),
-                button("✕")
-                    .on_press(Message::ToggleBottomPanel)
-                    .padding([4, 8])
-                    .style(|_theme, status| {
-                        let bg_color = match status {
-                            button::Status::Hovered => Color::from_rgb(0.5, 0.2, 0.2),
-                            _ => Color::from_rgb(0.3, 0.15, 0.15),
-                        };
-                        button::Style {
-                            background: Some(iced::Background::Color(bg_color)),
-                            text_color: Color::WHITE,
-                            ..Default::default()
-                        }
-                    })
             ]
             .align_y(iced::Alignment::Center)
             .spacing(10),
@@ -240,7 +237,7 @@ fn view_bottom_panel(app: &ChartApp) -> Element<'_, Message> {
         .spacing(10)
     )
     .width(Length::Fill)
-    .height(Length::Fill)
+    .height(Length::Fixed(panel_content_height))
     .style(|_theme| container::Style {
         background: Some(iced::Background::Color(Color::from_rgb(0.10, 0.10, 0.12))),
         border: iced::Border {

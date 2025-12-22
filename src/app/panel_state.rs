@@ -2,6 +2,12 @@
 //!
 //! Gère la visibilité, les dimensions et l'état de redimensionnement des panneaux.
 
+/// Taille minimale d'un panneau (juste la poignée visible)
+pub const MIN_PANEL_SIZE: f32 = 6.0;
+
+/// Seuil de snap : distance depuis le bord pour déclencher le snap
+pub const SNAP_THRESHOLD: f32 = 20.0;
+
 /// État d'un panneau (droite ou bas)
 #[derive(Debug, Clone)]
 pub struct PanelState {
@@ -56,9 +62,25 @@ impl PanelState {
             self.resize_start = Some(current_pos);
         }
     }
+    
+    /// Applique le snap à la fin du redimensionnement
+    /// Si le panneau est proche du minimum, il se snap au minimum
+    pub fn apply_snap(&mut self) {
+        // Si on est proche du minimum (dans le seuil de snap), snapper au minimum
+        if self.size <= self.min_size + SNAP_THRESHOLD && self.size > self.min_size {
+            self.size = MIN_PANEL_SIZE;
+        }
+    }
+    
+    /// Vérifie si le panneau est réduit au minimum (snappé)
+    pub fn is_snapped(&self) -> bool {
+        self.size <= MIN_PANEL_SIZE + 1.0 // Petite marge pour éviter les problèmes de précision flottante
+    }
 
-    /// Termine le redimensionnement
+    /// Termine le redimensionnement et applique le snap si nécessaire
     pub fn end_resize(&mut self) {
+        // Appliquer le snap avant de terminer le redimensionnement
+        self.apply_snap();
         self.is_resizing = false;
         self.resize_start = None;
     }
@@ -82,8 +104,9 @@ impl PanelsState {
     pub fn new() -> Self {
         use crate::app::constants::{RIGHT_PANEL_WIDTH, BOTTOM_PANEL_HEIGHT};
         Self {
-            right: PanelState::new(RIGHT_PANEL_WIDTH, 100.0, 500.0),
-            bottom: PanelState::new(BOTTOM_PANEL_HEIGHT, 50.0, 400.0),
+            // Taille minimale = juste la poignée (MIN_PANEL_SIZE)
+            right: PanelState::new(RIGHT_PANEL_WIDTH, MIN_PANEL_SIZE, 500.0),
+            bottom: PanelState::new(BOTTOM_PANEL_HEIGHT, MIN_PANEL_SIZE, 400.0),
         }
     }
 }
