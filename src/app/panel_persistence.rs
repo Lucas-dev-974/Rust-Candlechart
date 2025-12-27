@@ -15,7 +15,13 @@ pub struct PanelPersistenceState {
     /// État des panneaux (droite et bas)
     pub panels: PanelsState,
     /// Section active du panneau du bas
-    pub active_section: BottomPanelSection,
+    pub active_bottom_section: BottomPanelSection,
+    /// Section active du panneau de droite
+    #[serde(default)]
+    pub active_right_section: Option<BottomPanelSection>,
+    /// Sections dans le panneau de droite
+    #[serde(default)]
+    pub right_panel_sections: Vec<BottomPanelSection>,
 }
 
 impl PanelPersistenceState {
@@ -38,7 +44,9 @@ impl Default for PanelPersistenceState {
     fn default() -> Self {
         Self {
             panels: PanelsState::new(),
-            active_section: BottomPanelSection::Overview,
+            active_bottom_section: BottomPanelSection::Overview,
+            active_right_section: None,
+            right_panel_sections: Vec::new(),
         }
     }
 }

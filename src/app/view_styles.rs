@@ -128,37 +128,6 @@ pub fn danger_button_style(_theme: &iced::Theme, status: button::Status) -> butt
     }
 }
 
-/// Crée un style de bouton pour les onglets du panneau du bas
-pub fn tab_button_style(is_active: bool) -> impl Fn(&iced::Theme, button::Status) -> button::Style {
-    move |_theme, status| {
-        let bg_color = if is_active {
-            match status {
-                button::Status::Hovered => colors::BUTTON_ACTIVE_HOVER,
-                _ => colors::BUTTON_ACTIVE,
-            }
-        } else {
-            match status {
-                button::Status::Hovered => colors::ACCENT_HOVER,
-                _ => Color::from_rgb(0.15, 0.15, 0.18),
-            }
-        };
-        button::Style {
-            background: Some(Background::Color(bg_color)),
-            text_color: colors::TEXT_PRIMARY,
-            border: Border {
-                color: if is_active {
-                    colors::BORDER_ACTIVE
-                } else {
-                    Color::from_rgb(0.3, 0.3, 0.35)
-                },
-                width: if is_active { 1.5 } else { 1.0 },
-                radius: 4.0.into(),
-            },
-            ..Default::default()
-        }
-    }
-}
-
 /// Style pour le provider actif dans la liste
 pub fn provider_card_style(is_active: bool) -> impl Fn(&iced::Theme) -> container::Style {
     move |_theme| container::Style {

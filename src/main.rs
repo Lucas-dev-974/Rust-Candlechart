@@ -55,6 +55,10 @@ impl ChartApp {
                 }
                 Task::none()
             }
+            Message::ToolsPanel(ToolsPanelMessage::ToggleIndicatorsPanel) => {
+                self.indicators_panel_open = !self.indicators_panel_open;
+                Task::none()
+            }
             
             // === Gestion des messages du panel de séries ===
             Message::SeriesPanel(SeriesPanelMessage::SelectSeriesByName { series_name }) => {
@@ -341,12 +345,22 @@ impl ChartApp {
             }
             
             // === Gestion des panneaux latéraux ===
-            Message::ToggleRightPanel => {
-                self.panels.right.toggle_visibility();
+            Message::ToggleVolumePanel => {
+                self.panels.volume.toggle_visibility();
+                // Sauvegarder l'état des panneaux après changement de visibilité
+                self.save_panel_state();
                 Task::none()
             }
-            Message::ToggleBottomPanel => {
-                self.panels.bottom.toggle_visibility();
+            Message::ToggleRSIPanel => {
+                self.panels.rsi.toggle_visibility();
+                // Sauvegarder l'état des panneaux après changement de visibilité
+                self.save_panel_state();
+                Task::none()
+            }
+            Message::ToggleMACDPanel => {
+                self.panels.macd.toggle_visibility();
+                // Sauvegarder l'état des panneaux après changement de visibilité
+                self.save_panel_state();
                 Task::none()
             }
             Message::StartResizeRightPanel(pos) => {
@@ -377,10 +391,98 @@ impl ChartApp {
                 self.save_panel_state();
                 Task::none()
             }
-            Message::SelectBottomPanelSection(section) => {
-                self.bottom_panel_sections.set_active_section(section);
-                // Sauvegarder l'état complet des panneaux
+            Message::StartResizeVolumePanel(pos) => {
+                self.panels.volume.start_resize(pos);
+                Task::none()
+            }
+            Message::UpdateResizeVolumePanel(pos) => {
+                self.panels.volume.update_resize(pos, false);
+                Task::none()
+            }
+            Message::EndResizeVolumePanel => {
+                self.panels.volume.end_resize();
+                // Sauvegarder l'état des panneaux après redimensionnement
                 self.save_panel_state();
+                Task::none()
+            }
+            Message::StartResizeRSIPanel(pos) => {
+                self.panels.rsi.start_resize(pos);
+                Task::none()
+            }
+            Message::StartResizeMACDPanel(pos) => {
+                self.panels.macd.start_resize(pos);
+                Task::none()
+            }
+            Message::UpdateResizeRSIPanel(pos) => {
+                self.panels.rsi.update_resize(pos, false);
+                Task::none()
+            }
+            Message::UpdateResizeMACDPanel(pos) => {
+                self.panels.macd.update_resize(pos, false);
+                Task::none()
+            }
+            Message::EndResizeRSIPanel => {
+                self.panels.rsi.end_resize();
+                // Sauvegarder l'état des panneaux après redimensionnement
+                self.save_panel_state();
+                Task::none()
+            }
+            Message::EndResizeMACDPanel => {
+                self.panels.macd.end_resize();
+                // Sauvegarder l'état des panneaux après redimensionnement
+                self.save_panel_state();
+                Task::none()
+            }
+            Message::StartDragSection(section) => {
+                let section_is_in_right = self.bottom_panel_sections.is_section_in_right_panel(section);
+                
+                // Démarrer un nouveau drag
+                self.dragging_section = Some(section);
+                self.drag_from_right_panel = section_is_in_right;
+                self.drag_over_right_panel = section_is_in_right;
+                
+                // Sélectionner la section dans le bon panneau
+                if section_is_in_right {
+                    self.bottom_panel_sections.set_active_right_section(section);
+                } else {
+                    self.bottom_panel_sections.set_active_section(section);
+                }
+                Task::none()
+            }
+            Message::UpdateDragPosition(position) => {
+                if self.dragging_section.is_some() {
+                    self.drag_position = Some(position);
+                }
+                Task::none()
+            }
+            Message::EndDragSection => {
+                if let Some(section) = self.dragging_section.take() {
+                    if self.drag_from_right_panel {
+                        // On drague depuis le panneau de droite
+                        // Toujours déplacer vers le bas (on a relâché sur le panneau du bas)
+                        self.bottom_panel_sections.move_section_to_bottom_panel(section);
+                        self.save_panel_state();
+                    } else {
+                        // On drague depuis le panneau du bas
+                        if self.drag_over_right_panel {
+                            // On est sur le panneau de droite → déplacer vers la droite
+                            self.bottom_panel_sections.move_section_to_right_panel(section);
+                            self.save_panel_state();
+                        }
+                        // Sinon, on reste sur le panneau du bas, ne rien faire
+                    }
+                }
+                self.drag_from_right_panel = false;
+                self.drag_over_right_panel = false;
+                self.drag_position = None;
+                Task::none()
+            }
+            Message::DragEnterRightPanel => {
+                self.drag_over_right_panel = true;
+                Task::none()
+            }
+            Message::DragExitRightPanel => {
+                self.drag_over_right_panel = false;
                 Task::none()
             }
             Message::SetRightPanelFocus(focused) => {
@@ -391,9 +493,23 @@ impl ChartApp {
                 self.panels.bottom.set_focused(focused);
                 Task::none()
             }
+            Message::SetVolumePanelFocus(focused) => {
+                self.panels.volume.set_focused(focused);
+                Task::none()
+            }
+            Message::SetRSIPanelFocus(focused) => {
+                self.panels.rsi.set_focused(focused);
+                Task::none()
+            }
+            Message::SetMACDPanelFocus(focused) => {
+                self.panels.macd.set_focused(focused);
+                Task::none()
+            }
             Message::ClearPanelFocus => {
                 self.panels.right.set_focused(false);
                 self.panels.bottom.set_focused(false);
+                self.panels.volume.set_focused(false);
+                self.panels.rsi.set_focused(false);
                 Task::none()
             }
             Message::ToggleAccountType => {
@@ -404,10 +520,6 @@ impl ChartApp {
                     crate::app::account_type::AccountType::Demo
                 };
                 self.account_type.set_account_type(new_type);
-                Task::none()
-            }
-            Message::SetAccountType(account_type) => {
-                self.account_type.set_account_type(account_type);
                 Task::none()
             }
             
@@ -467,7 +579,9 @@ impl ChartApp {
         use crate::app::panel_persistence::PanelPersistenceState;
         let state = PanelPersistenceState {
             panels: self.panels.clone(),
-            active_section: self.bottom_panel_sections.active_section,
+            active_bottom_section: self.bottom_panel_sections.active_bottom_section,
+            active_right_section: self.bottom_panel_sections.active_right_section,
+            right_panel_sections: self.bottom_panel_sections.right_panel_sections.clone(),
         };
         if let Err(e) = state.save_to_file("panel_state.json") {
             eprintln!("⚠️ Erreur sauvegarde état panneaux: {}", e);

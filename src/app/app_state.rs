@@ -18,6 +18,7 @@ use crate::app::{
     panel_state::{PanelsState, MIN_PANEL_SIZE},
     bottom_panel_sections::BottomPanelSectionsState,
     account_type::AccountTypeState,
+    account_info::AccountInfo,
     panel_persistence::PanelPersistenceState,
 };
 
@@ -55,12 +56,24 @@ pub struct ChartApp {
     // État des sections du panneau du bas
     pub bottom_panel_sections: BottomPanelSectionsState,
     
+    // État du drag & drop des sections
+    pub dragging_section: Option<crate::app::bottom_panel_sections::BottomPanelSection>,
+    pub drag_from_right_panel: bool, // Indique si le drag a commencé depuis le panneau de droite
+    pub drag_over_right_panel: bool, // Indique si on survole le panneau de droite pendant le drag
+    pub drag_position: Option<iced::Point>, // Position de la souris pendant le drag
+    
     // État du type de compte
     pub account_type: AccountTypeState,
+    
+    // Informations du compte de trading
+    pub account_info: AccountInfo,
     
     // État de connexion au provider
     pub provider_connection_status: Option<bool>, // None = non testé, Some(true) = connecté, Some(false) = non connecté
     pub provider_connection_testing: bool, // Indique si un test de connexion est en cours
+    
+    // État de l'onglet d'indicateurs
+    pub indicators_panel_open: bool, // Indique si l'onglet d'indicateurs est ouvert
 }
 
 impl ChartApp {
@@ -142,9 +155,15 @@ impl ChartApp {
                 render_version: 0,
                 panels: Self::load_panels_state(),
                 bottom_panel_sections: Self::load_bottom_panel_sections(),
+                dragging_section: None,
+                drag_from_right_panel: false,
+                drag_over_right_panel: false,
+                drag_position: None,
                 account_type: AccountTypeState::new(),
+                account_info: AccountInfo::new(),
                 provider_connection_status: None,
                 provider_connection_testing: false,
+                indicators_panel_open: false,
             },
             Task::batch(vec![
                 open_task.map(Message::MainWindowOpened),
@@ -160,6 +179,8 @@ impl ChartApp {
                 println!("✅ État des panneaux chargé depuis panel_state.json");
                 // Restaurer les valeurs par défaut pour les champs non sérialisés
                 let mut panels = state.panels;
+                // Lire le JSON pour vérifier si macd existe
+                let panels_state_json = std::fs::read_to_string("panel_state.json").unwrap_or_default();
                 // Restaurer les valeurs pour le panneau de droite
                 panels.right.min_size = MIN_PANEL_SIZE;
                 panels.right.max_size = 500.0;
@@ -172,6 +193,30 @@ impl ChartApp {
                 panels.bottom.is_resizing = false;
                 panels.bottom.resize_start = None;
                 panels.bottom.focused = false;
+                // Restaurer les valeurs pour le panneau de volume
+                panels.volume.min_size = MIN_PANEL_SIZE;
+                panels.volume.max_size = 400.0;
+                panels.volume.is_resizing = false;
+                panels.volume.resize_start = None;
+                panels.volume.focused = false;
+                // Restaurer les valeurs pour le panneau RSI
+                panels.rsi.min_size = MIN_PANEL_SIZE;
+                panels.rsi.max_size = 400.0;
+                panels.rsi.is_resizing = false;
+                panels.rsi.resize_start = None;
+                panels.rsi.focused = false;
+                
+                // Initialiser le panneau MACD avec des valeurs par défaut
+                panels.macd.min_size = MIN_PANEL_SIZE;
+                panels.macd.max_size = 400.0;
+                panels.macd.is_resizing = false;
+                panels.macd.resize_start = None;
+                panels.macd.focused = false;
+                // Le MACD panel est masqué par défaut si non présent dans le JSON
+                if !panels_state_json.contains("\"macd\"") {
+                    panels.macd.visible = false;
+                }
+                
                 panels
             }
             Err(_) => {
@@ -186,7 +231,9 @@ impl ChartApp {
             Ok(state) => {
                 println!("✅ Section active du panneau chargée depuis panel_state.json");
                 BottomPanelSectionsState {
-                    active_section: state.active_section,
+                    active_bottom_section: state.active_bottom_section,
+                    active_right_section: state.active_right_section,
+                    right_panel_sections: state.right_panel_sections,
                 }
             }
             Err(_) => {

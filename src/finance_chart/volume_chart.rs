@@ -8,7 +8,8 @@ use iced::mouse::Cursor;
 
 use super::state::ChartState;
 use super::scale::VolumeScale;
-use super::render::{calculate_bar_width, calculate_candle_period};
+use super::render::{calculate_bar_width, calculate_candle_period, render_volume_crosshair};
+use super::render::crosshair::CrosshairStyle;
 
 /// Program Iced pour le rendu du volume
 pub struct VolumeProgram<'a> {
@@ -34,7 +35,7 @@ impl<'a, Message> Program<Message> for VolumeProgram<'a> {
         renderer: &iced::Renderer,
         _theme: &iced::Theme,
         bounds: Rectangle,
-        _cursor: Cursor,
+        cursor: Cursor,
     ) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
 
@@ -110,6 +111,26 @@ impl<'a, Message> Program<Message> for VolumeProgram<'a> {
                 }
             }
         }
+
+        // Rendre le crosshair synchronisé avec le graphique principal
+        let mouse_position_in_chart = cursor.position_in(bounds);
+        let main_mouse_position = self.chart_state.interaction.mouse_position;
+        
+        let crosshair_style = CrosshairStyle {
+            line_color: Color::from_rgba(0.6, 0.6, 0.6, 0.8),
+            ..Default::default()
+        };
+        
+        render_volume_crosshair(
+            &mut frame,
+            viewport,
+            main_mouse_position,
+            &self.volume_scale,
+            bounds.width,
+            bounds.height,
+            mouse_position_in_chart.map(|p| p.y),
+            Some(crosshair_style),
+        );
 
         vec![frame.into_geometry()]
     }

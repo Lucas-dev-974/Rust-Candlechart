@@ -3,11 +3,13 @@
 //! Ce module contient toutes les méthodes de rendu (view) pour les différentes fenêtres
 //! de l'application : fenêtre principale, settings, et configuration des providers.
 
-use iced::widget::{button, column, container, row, text, scrollable, Space, checkbox, text_input, mouse_area};
+use iced::widget::{button, column, container, row, text, scrollable, Space, checkbox, text_input, mouse_area, stack};
 use iced::{Element, Length, Color};
 use crate::finance_chart::{
     chart, x_axis, y_axis, tools_panel, series_select_box,
     volume_chart, volume_y_axis,
+    rsi_chart, rsi_y_axis,
+    macd_chart, macd_y_axis,
     X_AXIS_HEIGHT, TOOLS_PANEL_WIDTH,
     settings::{color_fields, preset_colors, SerializableColor},
     ProviderType, VolumeScale,
@@ -15,10 +17,11 @@ use crate::finance_chart::{
 use crate::app::{
     app_state::ChartApp,
     messages::Message,
-    resize_handle::{horizontal_resize_handle, vertical_resize_handle},
-    constants::VOLUME_CHART_HEIGHT,
-    bottom_panel_sections::{BottomPanelSection, BottomPanelSectionsState},
+    resize_handle::{horizontal_resize_handle, vertical_resize_handle, volume_resize_handle},
+    bottom_panel_sections::BottomPanelSection,
     view_styles::{self, colors},
+    drag_overlay,
+    constants::INDICATORS_PANEL_WIDTH,
 };
 
 /// Fonction helper pour le bouton de settings dans le coin
@@ -30,40 +33,215 @@ fn corner_settings_button() -> Element<'static, Message> {
         .into()
 }
 
-/// Composant qui regroupe toutes les sections du graphique
-/// (tools_panel, chart, y_axis, x_axis, volume_chart, volume_y_axis)
-fn view_chart_component(app: &ChartApp) -> Element<'_, Message> {
-    // Calculer le VolumeScale dynamiquement en fonction des bougies visibles
-    // Similaire à comment l'axe Y des prix fonctionne
-    let volume_scale = {
-        let (min_time, max_time) = app.chart_state.viewport.time_scale().time_range();
-        let volume_range = app.chart_state.series_manager
-            .active_series()
-            .next()
-            .and_then(|series| {
-                // D'abord essayer d'obtenir la plage pour les bougies visibles
-                let visible_range = series.data.volume_range_for_time_range(min_time..max_time);
-                
-                // Si aucune bougie visible, utiliser la plage globale comme fallback
-                visible_range.or_else(|| series.data.volume_range())
-            })
-            .map(|(_min, max)| {
-                // Toujours forcer le min à 0 pour les volumes (barres depuis le bas)
-                // Cela garantit une visualisation cohérente
-                (0.0, max.max(0.0))
-            })
-            .filter(|(_min, max)| *max > 0.0) // Filtrer les plages invalides
-            .unwrap_or((0.0, 1000.0)); // Dernier fallback si aucune série ou plage invalide
-        
-        let mut scale = VolumeScale::new(volume_range.0, volume_range.1, VOLUME_CHART_HEIGHT);
-        scale.set_height(VOLUME_CHART_HEIGHT);
-        scale
-    };
+/// Définition d'un indicateur avec son nom et son état
+struct Indicator {
+    name: &'static str,
+    is_active: bool,
+    on_toggle: fn(bool) -> Message,
+}
 
+/// Vue de l'onglet d'indicateurs
+fn indicators_panel(app: &ChartApp) -> Element<'_, Message> {
+    // Liste des indicateurs disponibles avec leur état
+    let indicators = vec![
+        Indicator {
+            name: "Volume Profile",
+            is_active: app.panels.volume.visible,
+            on_toggle: |_| Message::ToggleVolumePanel,
+        },
+        Indicator {
+            name: "RSI",
+            is_active: app.panels.rsi.visible,
+            on_toggle: |_| Message::ToggleRSIPanel,
+        },
+        Indicator {
+            name: "MACD",
+            is_active: app.panels.macd.visible,
+            on_toggle: |_| Message::ToggleMACDPanel,
+        },
+        Indicator {
+            name: "Bollinger Bands",
+            is_active: false,
+            on_toggle: |_| Message::ClearPanelFocus, // TODO: implémenter
+        },
+        Indicator {
+            name: "Moving Average",
+            is_active: false,
+            on_toggle: |_| Message::ClearPanelFocus, // TODO: implémenter
+        },
+        Indicator {
+            name: "Stochastic",
+            is_active: false,
+            on_toggle: |_| Message::ClearPanelFocus, // TODO: implémenter
+        },
+    ];
+    
+    let mut indicators_list = column![].spacing(5);
+    
+    for indicator in indicators {
+        let indicator_text = text(indicator.name)
+            .size(13)
+            .color(colors::TEXT_PRIMARY);
+        
+        let on_toggle_fn = indicator.on_toggle;
+        let indicator_row = container(
+            row![
+                checkbox(indicator.is_active)
+                    .on_toggle(move |checked| on_toggle_fn(checked)),
+                indicator_text
+            ]
+            .spacing(10)
+            .align_y(iced::Alignment::Center)
+            .padding([5, 10])
+        )
+        .style(move |_theme| {
+            container::Style {
+                background: Some(iced::Background::Color(Color::from_rgb(0.12, 0.12, 0.15))),
+                border: iced::Border {
+                    color: Color::from_rgb(0.2, 0.2, 0.25),
+                    width: 1.0,
+                    radius: 4.0.into(),
+                },
+                ..Default::default()
+            }
+        });
+        
+        indicators_list = indicators_list.push(indicator_row);
+    }
+    
+    container(
+        column![
+            // Header
+            container(
+                row![
+                    text("Indicateurs")
+                        .size(16)
+                        .color(colors::TEXT_PRIMARY),
+                    Space::new().width(Length::Fill),
+                    button("✕")
+                        .on_press(Message::ToolsPanel(crate::finance_chart::messages::ToolsPanelMessage::ToggleIndicatorsPanel))
+                        .padding(4)
+                        .style(view_styles::icon_button_style)
+                ]
+                .align_y(iced::Alignment::Center)
+                .padding([10, 15])
+            )
+            .width(Length::Fill)
+            .style(view_styles::header_container_style),
+            // Liste des indicateurs
+            container(
+                scrollable(indicators_list)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+            )
+            .padding(10)
+            .width(Length::Fill)
+            .height(Length::Fill)
+        ]
+        .width(Length::Fill)
+        .height(Length::Fill)
+    )
+    .width(Length::Fixed(INDICATORS_PANEL_WIDTH))
+    .height(Length::Fill)
+    .style(view_styles::panel_container_style)
+    .into()
+}
+
+/// Helper pour créer un chart avec overlay d'indicateurs si ouvert
+fn chart_with_indicators_overlay<'a>(chart_content: Element<'a, Message>, app: &'a ChartApp) -> Element<'a, Message> {
+    if app.indicators_panel_open {
+        // Utiliser stack pour superposer l'overlay sur le graphique
+        // Le premier élément est en dessous, le dernier est au-dessus
+        stack![
+            // Le graphique principal (en dessous)
+            chart_content,
+            // L'overlay de l'onglet d'indicateurs (au-dessus, positionné en haut à gauche)
+            container(
+                row![
+                    // Espace pour la toolbar (TOOLS_PANEL_WIDTH)
+                    Space::new().width(Length::Fixed(TOOLS_PANEL_WIDTH)),
+                    // L'onglet d'indicateurs
+                    indicators_panel(app)
+                ]
+            )
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(iced::alignment::Horizontal::Left)
+            .align_y(iced::alignment::Vertical::Top)
+        ]
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
+    } else {
+        chart_content
+    }
+}
+
+/// Handle de redimensionnement pour le panneau de volume
+fn volume_panel_resize_handle(app: &ChartApp) -> Element<'_, Message> {
+    // Hauteur plus visible pour le handle
+    let handle_height = 6.0;
+    volume_resize_handle(handle_height, app.panels.volume.is_resizing)
+}
+
+/// Bouton de fermeture du volume chart en overlay
+fn volume_chart_close_button() -> Element<'static, Message> {
+    container(
+        button("🗑️")
+            .on_press(Message::ToggleVolumePanel)
+            .padding(4)
+            .style(view_styles::icon_button_style)
+    )
+    .padding(5)
+    .into()
+}
+
+/// Handle de redimensionnement pour le panneau RSI
+fn rsi_panel_resize_handle_helper(app: &ChartApp) -> Element<'_, Message> {
+    let handle_height = 6.0;
+    use crate::app::resize_handle::rsi_panel_resize_handle;
+    rsi_panel_resize_handle(handle_height, app.panels.rsi.is_resizing)
+}
+
+/// Bouton de fermeture du graphique RSI (icône poubelle)
+fn rsi_chart_close_button() -> Element<'static, Message> {
+    container(
+        button("🗑️")
+            .on_press(Message::ToggleRSIPanel)
+            .padding(4)
+            .style(view_styles::icon_button_style)
+    )
+    .padding(5)
+    .into()
+}
+
+/// Handle de redimensionnement pour le panneau MACD
+fn macd_panel_resize_handle_helper(app: &ChartApp) -> Element<'_, Message> {
+    let handle_height = 6.0;
+    use crate::app::resize_handle::macd_panel_resize_handle;
+    macd_panel_resize_handle(handle_height, app.panels.macd.is_resizing)
+}
+
+/// Bouton de fermeture du graphique MACD (icône poubelle)
+fn macd_chart_close_button() -> Element<'static, Message> {
+    container(
+        button("🗑️")
+            .on_press(Message::ToggleMACDPanel)
+            .padding(4)
+            .style(view_styles::icon_button_style)
+    )
+    .padding(5)
+    .into()
+}
+
+/// Composant qui regroupe toutes les sections du graphique
+/// (tools_panel, chart, y_axis, x_axis, volume_chart, volume_y_axis, rsi_chart, rsi_y_axis)
+fn view_chart_component(app: &ChartApp) -> Element<'_, Message> {
     // Ligne principale : Tools (gauche) + Chart (centre) + Axe Y (droite)
+    // L'onglet d'indicateurs sera en overlay par-dessus
     let panel_focused = app.panels.has_focused_panel();
     let chart_row = row![
-        tools_panel(&app.tools_state).map(Message::ToolsPanel),
+        tools_panel(&app.tools_state, app.indicators_panel_open).map(Message::ToolsPanel),
         mouse_area(
             container(
                 chart(&app.chart_state, &app.tools_state, &app.settings_state, &app.chart_style, panel_focused)
@@ -78,18 +256,6 @@ fn view_chart_component(app: &ChartApp) -> Element<'_, Message> {
     .width(Length::Fill)
     .height(Length::Fill);
 
-    // Ligne du volume : espace (sous tools) + Volume Chart + Volume Y Axis
-    let volume_row = row![
-        container(Space::new())
-            .width(Length::Fixed(TOOLS_PANEL_WIDTH))
-            .height(Length::Fill)
-            .style(view_styles::dark_background_style),
-        volume_chart(&app.chart_state, volume_scale.clone()),
-        volume_y_axis(volume_scale)
-    ]
-    .width(Length::Fill)
-    .height(Length::Fixed(VOLUME_CHART_HEIGHT));
-
     // Ligne du bas : espace comblé (sous tools) + Axe X + bouton settings (coin)
     let x_axis_row = row![
         container(Space::new())
@@ -102,15 +268,211 @@ fn view_chart_component(app: &ChartApp) -> Element<'_, Message> {
     .width(Length::Fill)
     .height(Length::Fixed(X_AXIS_HEIGHT));
 
-    // Layout du composant chart complet : Chart + Volume + X Axis
-    column![
-        chart_row,
-        volume_row,
-        x_axis_row
-    ]
-    .width(Length::Fill)
-    .height(Length::Fill)
-    .into()
+    // Vérifier si le volume panel est visible et snappé
+    let is_volume_visible = app.panels.volume.visible;
+    let is_volume_snapped = app.panels.volume.is_snapped();
+    
+    // Utiliser la hauteur dynamique du panneau de volume
+    let volume_height = app.panels.volume.size;
+    
+    // Handle de redimensionnement du volume (entre le chart et le volume)
+    let volume_resize_handle = mouse_area(
+        volume_panel_resize_handle(app)
+    )
+    .on_enter(Message::SetVolumePanelFocus(true))
+    .on_exit(Message::SetVolumePanelFocus(false));
+
+    // Construire le layout avec le volume si visible
+    let volume_row = if is_volume_visible && !is_volume_snapped {
+        // Utiliser toute la hauteur pour le volume chart (plus de header séparé)
+        let volume_chart_height = volume_height;
+        
+        // Calculer le VolumeScale dynamiquement en fonction des bougies visibles
+        // Similaire à comment l'axe Y des prix fonctionne
+        let volume_scale = {
+            let (min_time, max_time) = app.chart_state.viewport.time_scale().time_range();
+            let volume_range = app.chart_state.series_manager
+                .active_series()
+                .next()
+                .and_then(|series| {
+                    // D'abord essayer d'obtenir la plage pour les bougies visibles
+                    let visible_range = series.data.volume_range_for_time_range(min_time..max_time);
+                    
+                    // Si aucune bougie visible, utiliser la plage globale comme fallback
+                    visible_range.or_else(|| series.data.volume_range())
+                })
+                .map(|(_min, max)| {
+                    // Toujours forcer le min à 0 pour les volumes (barres depuis le bas)
+                    // Cela garantit une visualisation cohérente
+                    (0.0, max.max(0.0))
+                })
+                .filter(|(_min, max)| *max > 0.0) // Filtrer les plages invalides
+                .unwrap_or((0.0, 1000.0)); // Dernier fallback si aucune série ou plage invalide
+            
+            let mut scale = VolumeScale::new(volume_range.0, volume_range.1, volume_chart_height);
+            scale.set_height(volume_chart_height);
+            scale
+        };
+        
+        // Volume chart avec overlay du bouton de fermeture
+        let volume_chart_with_overlay = stack![
+            // Le volume chart (en dessous)
+            row![
+                container(Space::new())
+                    .width(Length::Fixed(TOOLS_PANEL_WIDTH))
+                    .height(Length::Fill)
+                    .style(view_styles::dark_background_style),
+                volume_chart(&app.chart_state, volume_scale.clone()),
+                volume_y_axis(volume_scale)
+            ]
+            .width(Length::Fill)
+            .height(Length::Fixed(volume_chart_height)),
+            // Bouton de fermeture en overlay (au-dessus, positionné en haut à gauche)
+            container(
+                row![
+                    Space::new().width(Length::Fixed(TOOLS_PANEL_WIDTH)),
+                    volume_chart_close_button()
+                ]
+            )
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(iced::alignment::Horizontal::Left)
+            .align_y(iced::alignment::Vertical::Top)
+        ]
+        .width(Length::Fill)
+        .height(Length::Fixed(volume_chart_height));
+        
+        // Ligne du volume : Volume Chart avec overlay + Volume Y Axis
+        Some(volume_chart_with_overlay
+            .width(Length::Fill)
+            .height(Length::Fixed(volume_height)))
+    } else {
+        None
+    };
+
+    // Vérifier si le RSI panel est visible
+    let is_rsi_visible = app.panels.rsi.visible;
+    let is_rsi_snapped = app.panels.rsi.is_snapped();
+    let rsi_height = app.panels.rsi.size;
+    
+    // Handle de redimensionnement du RSI (entre le volume et le RSI, ou entre le chart et le RSI)
+    let rsi_resize_handle = mouse_area(
+        rsi_panel_resize_handle_helper(app)
+    )
+    .on_enter(Message::SetRSIPanelFocus(true))
+    .on_exit(Message::SetRSIPanelFocus(false));
+    
+    // Construire le layout avec le volume et le RSI si visibles
+    let mut layout_items: Vec<Element<'_, Message>> = vec![chart_row.into()];
+    
+    // Ajouter le volume si visible
+    if is_volume_visible {
+        layout_items.push(volume_resize_handle.into());
+        if let Some(vol_row) = volume_row {
+            layout_items.push(vol_row.into());
+        }
+    }
+    
+    // Ajouter le RSI si visible
+    if is_rsi_visible {
+        layout_items.push(rsi_resize_handle.into());
+        
+        if !is_rsi_snapped {
+            // RSI chart avec overlay du bouton de fermeture
+            let rsi_chart_with_overlay = stack![
+                // Le RSI chart (en dessous)
+                row![
+                    container(Space::new())
+                        .width(Length::Fixed(TOOLS_PANEL_WIDTH))
+                        .height(Length::Fill)
+                        .style(view_styles::dark_background_style),
+                    rsi_chart(&app.chart_state),
+                    rsi_y_axis(&app.chart_state, rsi_height)
+                ]
+                .width(Length::Fill)
+                .height(Length::Fixed(rsi_height)),
+                // Bouton de fermeture en overlay (au-dessus, positionné en haut à gauche)
+                container(
+                    row![
+                        Space::new().width(Length::Fixed(TOOLS_PANEL_WIDTH)),
+                        rsi_chart_close_button()
+                    ]
+                )
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(iced::alignment::Horizontal::Left)
+                .align_y(iced::alignment::Vertical::Top)
+            ]
+            .width(Length::Fill)
+            .height(Length::Fixed(rsi_height));
+            
+            layout_items.push(rsi_chart_with_overlay.into());
+        }
+    }
+    
+    // Vérifier si le MACD panel est visible
+    let is_macd_visible = app.panels.macd.visible;
+    let is_macd_snapped = app.panels.macd.is_snapped();
+    let macd_height = app.panels.macd.size;
+    
+    // Handle de redimensionnement du MACD
+    let macd_resize_handle = mouse_area(
+        macd_panel_resize_handle_helper(app)
+    )
+    .on_enter(Message::SetMACDPanelFocus(true))
+    .on_exit(Message::SetMACDPanelFocus(false));
+    
+    // Ajouter le MACD si visible
+    if is_macd_visible {
+        layout_items.push(macd_resize_handle.into());
+        
+        if !is_macd_snapped {
+            // MACD chart avec overlay du bouton de fermeture
+            let macd_chart_with_overlay = stack![
+                // Le MACD chart (en dessous)
+                row![
+                    container(Space::new())
+                        .width(Length::Fixed(TOOLS_PANEL_WIDTH))
+                        .height(Length::Fill)
+                        .style(view_styles::dark_background_style),
+                    macd_chart(&app.chart_state),
+                    macd_y_axis(&app.chart_state)
+                ]
+                .width(Length::Fill)
+                .height(Length::Fixed(macd_height)),
+                // Bouton de fermeture en overlay (au-dessus, positionné en haut à gauche)
+                container(
+                    row![
+                        Space::new().width(Length::Fixed(TOOLS_PANEL_WIDTH)),
+                        macd_chart_close_button()
+                    ]
+                )
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(iced::alignment::Horizontal::Left)
+                .align_y(iced::alignment::Vertical::Top)
+            ]
+            .width(Length::Fill)
+            .height(Length::Fixed(macd_height));
+            
+            layout_items.push(macd_chart_with_overlay.into());
+        }
+    }
+    
+    // Ajouter l'axe X en dernier
+    layout_items.push(x_axis_row.into());
+    
+    // Créer le layout principal
+    let mut main_chart_layout = column![];
+    for item in layout_items {
+        main_chart_layout = main_chart_layout.push(item);
+    }
+    let main_chart_layout = main_chart_layout
+        .width(Length::Fill)
+        .height(Length::Fill);
+    
+    // Ajouter l'overlay d'indicateurs si ouvert
+    chart_with_indicators_overlay(main_chart_layout.into(), app)
 }
 
 /// Handle de redimensionnement pour le panneau de droite
@@ -118,6 +480,115 @@ fn right_panel_resize_handle(app: &ChartApp) -> Element<'_, Message> {
     // Largeur plus visible pour le handle
     let handle_width = 6.0;
     horizontal_resize_handle(handle_width, app.panels.right.is_resizing)
+}
+
+/// Header du panneau de droite avec les boutons de sections
+fn right_panel_header(app: &ChartApp, panel_width: f32) -> Element<'_, Message> {
+    let sections = &app.bottom_panel_sections.right_panel_sections;
+    let header_height = 40.0;
+    
+    if sections.is_empty() {
+        // Zone de drop vide
+        let drop_text = if app.dragging_section.is_some() && app.drag_over_right_panel {
+            "Relâchez pour déposer"
+        } else if app.dragging_section.is_some() {
+            "Déposez ici"
+        } else {
+            "Glissez une section ici"
+        };
+        
+        let text_color = if app.dragging_section.is_some() && app.drag_over_right_panel {
+            Color::from_rgb(0.0, 0.8, 0.0)
+        } else {
+            colors::TEXT_SECONDARY
+        };
+        
+        return container(
+            text(drop_text)
+                .size(12)
+                .color(text_color)
+        )
+        .width(Length::Fixed(panel_width))
+        .height(Length::Fixed(header_height))
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
+        .style(move |_theme| {
+            let border_color = if app.dragging_section.is_some() && app.drag_over_right_panel {
+                Color::from_rgb(0.0, 0.8, 0.0)
+            } else {
+                Color::from_rgb(0.2, 0.2, 0.25)
+            };
+            container::Style {
+                background: Some(iced::Background::Color(colors::BACKGROUND_DARK)),
+                border: iced::Border {
+                    color: border_color,
+                    width: if app.dragging_section.is_some() && app.drag_over_right_panel { 2.0 } else { 1.0 },
+                    radius: 0.0.into(),
+                },
+                ..Default::default()
+            }
+        })
+        .into();
+    }
+    
+    let mut buttons_row = row![].spacing(5);
+    
+    for &section in sections {
+        let is_active = app.bottom_panel_sections.active_right_section == Some(section);
+        let is_dragging = app.dragging_section == Some(section);
+        let section_name = section.display_name();
+        
+        // Style du bouton
+        let section_content = container(
+            text(section_name).size(11).color(if is_active || is_dragging {
+                colors::TEXT_PRIMARY
+            } else {
+                colors::TEXT_SECONDARY
+            })
+        )
+        .padding([4, 8])
+        .style(move |_theme| {
+            let bg_color = if is_dragging {
+                Color::from_rgb(0.25, 0.35, 0.5)
+            } else if is_active {
+                Color::from_rgb(0.2, 0.25, 0.35)
+            } else {
+                Color::from_rgb(0.12, 0.12, 0.15)
+            };
+            container::Style {
+                background: Some(iced::Background::Color(bg_color)),
+                border: iced::Border {
+                    color: if is_active || is_dragging {
+                        Color::from_rgb(0.3, 0.4, 0.6)
+                    } else {
+                        Color::from_rgb(0.2, 0.2, 0.25)
+                    },
+                    width: 1.0,
+                    radius: 4.0.into(),
+                },
+                ..Default::default()
+            }
+        });
+        
+        // Envelopper dans mouse_area pour le drag & drop (vers le panneau du bas)
+        let section_button = mouse_area(section_content)
+            .on_press(Message::StartDragSection(section));
+        
+        buttons_row = buttons_row.push(section_button);
+    }
+    
+    container(
+        scrollable(
+            buttons_row.padding([0, 5])
+        )
+        .direction(scrollable::Direction::Horizontal(
+            scrollable::Scrollbar::default().width(3).scroller_width(3)
+        ))
+    )
+    .width(Length::Fixed(panel_width))
+    .height(Length::Fixed(header_height))
+    .style(view_styles::header_container_style)
+    .into()
 }
 
 /// Section à droite du graphique
@@ -148,32 +619,105 @@ fn view_right_panel(app: &ChartApp) -> Element<'_, Message> {
     
     let panel_content_width = app.panels.right.size - handle_width;
     
-    let panel_content = container(
-        column![
-            row![
+    // Header avec les boutons de sections
+    let header = right_panel_header(app, panel_content_width);
+    
+    // Contenu du panneau
+    let panel_content = if let Some(section) = app.bottom_panel_sections.active_right_section {
+        // Afficher la section active
+        container(
+            scrollable(
+                view_bottom_panel_section_content(app, section)
+            )
+            .width(Length::Fill)
+            .height(Length::Fill)
+        )
+        .width(Length::Fixed(panel_content_width))
+        .height(Length::Fill)
+        .padding(10)
+        .style(view_styles::panel_container_style)
+    } else if app.bottom_panel_sections.has_right_panel_sections() {
+        // Des sections existent mais aucune n'est active (ne devrait pas arriver)
+        container(
+            text("Sélectionnez une section")
+                .size(12)
+                .color(colors::TEXT_SECONDARY)
+        )
+        .width(Length::Fixed(panel_content_width))
+        .height(Length::Fill)
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
+        .style(view_styles::panel_container_style)
+    } else {
+        // Pas de sections - zone de drop
+        let drop_zone_text = if app.dragging_section.is_some() && app.drag_over_right_panel {
+            "Relâchez pour déposer ici"
+        } else if app.dragging_section.is_some() {
+            "Déposez ici"
+        } else {
+            "Glissez une section du panneau du bas ici"
+        };
+        
+        let drop_zone_color = if app.dragging_section.is_some() && app.drag_over_right_panel {
+            Color::from_rgb(0.0, 0.8, 0.0)
+        } else {
+            colors::TEXT_SECONDARY
+        };
+        
+        container(
+            column![
                 text("Panneau de droite")
                     .size(16)
                     .color(colors::TEXT_PRIMARY),
+                Space::new().height(Length::Fixed(10.0)),
+                text(drop_zone_text)
+                    .size(12)
+                    .color(drop_zone_color)
             ]
-            .align_y(iced::Alignment::Center)
-            .spacing(10),
-            Space::new().height(Length::Fixed(10.0)),
-            text("Cette section peut contenir des informations supplémentaires, des indicateurs, ou d'autres contrôles.")
-                .size(12)
-                .color(colors::TEXT_SECONDARY)
+            .spacing(5)
+        )
+        .width(Length::Fixed(panel_content_width))
+        .height(Length::Fill)
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
+        .style(move |_theme| {
+            let border_color = if app.dragging_section.is_some() && app.drag_over_right_panel {
+                Color::from_rgb(0.0, 0.8, 0.0)
+            } else {
+                Color::from_rgb(0.2, 0.2, 0.25)
+            };
+            let mut style = view_styles::panel_container_style(_theme);
+            style.border = iced::Border {
+                color: border_color,
+                width: if app.dragging_section.is_some() && app.drag_over_right_panel { 2.0 } else { 1.0 },
+                radius: 6.0.into(),
+            };
+            style
+        })
+    };
+    
+    // Zone de drop avec gestion des événements de drag & drop
+    let drop_zone = mouse_area(
+        column![
+            header,
+            panel_content
         ]
-        .padding(15)
-        .spacing(10)
+        .width(Length::Fixed(panel_content_width))
+        .height(Length::Fill)
     )
-    .width(Length::Fixed(panel_content_width))
-    .height(Length::Fill)
-    .style(view_styles::panel_container_style);
+    .on_enter(Message::DragEnterRightPanel)
+    .on_exit(Message::DragExitRightPanel)
+    .on_press(if app.dragging_section.is_some() {
+        Message::EndDragSection
+    } else {
+        Message::ClearPanelFocus
+    });
     
     // Englober tout le panneau (poignée + contenu) dans mouse_area
     mouse_area(
         row![
             right_panel_resize_handle(app),
-            panel_content
+            drop_zone
         ]
         .width(Length::Fixed(app.panels.right.size))
         .height(Length::Fill)
@@ -190,21 +734,79 @@ fn bottom_panel_resize_handle(app: &ChartApp) -> Element<'_, Message> {
     vertical_resize_handle(handle_height, app.panels.bottom.is_resizing)
 }
 
-/// Header du panneau du bas avec les boutons de sections
-fn bottom_panel_header(sections_state: &BottomPanelSectionsState) -> Element<'_, Message> {
+/// Header du panneau du bas avec les boutons de sections (avec drag & drop)
+fn bottom_panel_header(app: &ChartApp) -> Element<'_, Message> {
     let header_height = 40.0;
     let mut buttons_row = row![].spacing(5);
     
-    for section in BottomPanelSection::all() {
-        let is_active = sections_state.active_section == section;
+    // N'afficher que les sections qui sont dans le panneau du bas
+    let bottom_sections = app.bottom_panel_sections.bottom_panel_sections();
+    let is_bottom_empty = bottom_sections.is_empty();
+    
+    for section in bottom_sections {
+        let is_active = app.bottom_panel_sections.active_bottom_section == section;
+        let is_dragging = app.dragging_section == Some(section);
         let section_name = section.display_name();
         
-        let section_button = button(text(section_name).size(12))
-            .on_press(Message::SelectBottomPanelSection(section))
-            .padding([6, 12])
-            .style(view_styles::tab_button_style(is_active));
+        // Bouton principal de la section avec drag & drop
+        // On utilise un container stylé au lieu d'un button pour que mouse_area capture le clic
+        let section_content = container(
+            row![
+                text(section_name).size(12).color(if is_active || is_dragging {
+                    colors::TEXT_PRIMARY
+                } else {
+                    colors::TEXT_SECONDARY
+                }),
+                // Indicateur de drag
+                text(" ⋮⋮").size(10).color(Color::from_rgb(0.4, 0.4, 0.5))
+            ]
+            .align_y(iced::Alignment::Center)
+        )
+        .padding([6, 12])
+        .style(move |_theme| {
+            let bg_color = if is_dragging {
+                Color::from_rgb(0.25, 0.35, 0.5) // Bleu pendant le drag
+            } else if is_active {
+                Color::from_rgb(0.2, 0.25, 0.35) // Actif
+            } else {
+                Color::from_rgb(0.12, 0.12, 0.15) // Normal
+            };
+            container::Style {
+                background: Some(iced::Background::Color(bg_color)),
+                border: iced::Border {
+                    color: if is_active || is_dragging {
+                        Color::from_rgb(0.3, 0.4, 0.6)
+                    } else {
+                        Color::from_rgb(0.2, 0.2, 0.25)
+                    },
+                    width: 1.0,
+                    radius: 4.0.into(),
+                },
+                ..Default::default()
+            }
+        });
+        
+        // Envelopper dans mouse_area pour gérer le clic (démarre le drag ET sélectionne)
+        let section_button = mouse_area(section_content)
+            .on_press(Message::StartDragSection(section));
         
         buttons_row = buttons_row.push(section_button);
+    }
+    
+    // Zone de drop si on drague depuis le panneau de droite
+    if is_bottom_empty {
+        // Afficher une zone de drop si le panneau du bas est vide
+        let drop_text = if app.dragging_section.is_some() && !app.drag_over_right_panel {
+            "Déposez ici"
+        } else {
+            "Aucune section"
+        };
+        
+        buttons_row = buttons_row.push(
+            text(drop_text)
+                .size(12)
+                .color(colors::TEXT_SECONDARY)
+        );
     }
     
     container(
@@ -274,12 +876,175 @@ fn view_bottom_panel_orders(_app: &ChartApp) -> Element<'_, Message> {
     )
 }
 
+/// Crée une ligne d'information (label + valeur)
+fn create_info_row(label: &str, value: String, value_color: Option<Color>) -> Element<'_, Message> {
+    row![
+        text(label)
+            .size(12)
+            .color(colors::TEXT_SECONDARY),
+        Space::new().width(Length::Fill),
+        text(value)
+            .size(12)
+            .color(value_color.unwrap_or(colors::TEXT_PRIMARY))
+    ]
+    .align_y(iced::Alignment::Center)
+    .width(Length::Fill)
+    .into()
+}
+
+/// Crée la section Solde et Équité
+fn create_balance_section(app: &ChartApp) -> Element<'_, Message> {
+    let info = &app.account_info;
+    
+    let section_card_style = |_theme: &iced::Theme| container::Style {
+        background: Some(iced::Background::Color(Color::from_rgb(0.12, 0.12, 0.15))),
+        border: iced::Border {
+            color: Color::from_rgb(0.2, 0.2, 0.25),
+            width: 1.0,
+            radius: 6.0.into(),
+        },
+        ..Default::default()
+    };
+    
+    container(
+        column![
+            text("Solde et Équité")
+                .size(14)
+                .color(colors::TEXT_PRIMARY),
+            Space::new().height(Length::Fixed(12.0)),
+            create_info_row("Solde total", format!("{:.2} USDT", info.total_balance), None),
+            Space::new().height(Length::Fixed(8.0)),
+            create_info_row("Équité", format!("{:.2} USDT", info.equity), {
+                let pnl = info.unrealized_pnl;
+                Some(if pnl >= 0.0 {
+                    Color::from_rgb(0.0, 0.8, 0.0)
+                } else {
+                    Color::from_rgb(0.8, 0.0, 0.0)
+                })
+            }),
+        ]
+        .padding(12)
+        .spacing(8)
+    )
+    .style(section_card_style)
+    .into()
+}
+
+/// Crée la section Marge
+fn create_margin_section(app: &ChartApp) -> Element<'_, Message> {
+    let info = &app.account_info;
+    
+    let section_card_style = |_theme: &iced::Theme| container::Style {
+        background: Some(iced::Background::Color(Color::from_rgb(0.12, 0.12, 0.15))),
+        border: iced::Border {
+            color: Color::from_rgb(0.2, 0.2, 0.25),
+            width: 1.0,
+            radius: 6.0.into(),
+        },
+        ..Default::default()
+    };
+    
+    let margin_level_color = if info.liquidation {
+        Color::from_rgb(0.8, 0.0, 0.0)
+    } else if info.margin_call {
+        Color::from_rgb(1.0, 0.6, 0.0)
+    } else if info.margin_level > 200.0 {
+        Color::from_rgb(0.0, 0.8, 0.0)
+    } else if info.margin_level > 100.0 {
+        Color::from_rgb(0.8, 0.8, 0.0)
+    } else {
+        Color::from_rgb(0.8, 0.0, 0.0)
+    };
+    
+    container(
+        column![
+            text("Marge")
+                .size(14)
+                .color(colors::TEXT_PRIMARY),
+            Space::new().height(Length::Fixed(12.0)),
+            create_info_row("Marge utilisée", format!("{:.2} USDT", info.used_margin), None),
+            Space::new().height(Length::Fixed(8.0)),
+            create_info_row("Marge libre", format!("{:.2} USDT", info.free_margin), None),
+            Space::new().height(Length::Fixed(8.0)),
+            create_info_row("Niveau de marge", format!("{:.2}%", info.margin_level), Some(margin_level_color)),
+            Space::new().height(Length::Fixed(8.0)),
+            create_info_row("Effet de levier", format!("{}x", info.leverage), None),
+        ]
+        .padding(12)
+        .spacing(8)
+    )
+    .style(section_card_style)
+    .into()
+}
+
+/// Crée la section P&L
+fn create_pnl_section(app: &ChartApp) -> Element<'_, Message> {
+    let info = &app.account_info;
+    
+    let section_card_style = |_theme: &iced::Theme| container::Style {
+        background: Some(iced::Background::Color(Color::from_rgb(0.12, 0.12, 0.15))),
+        border: iced::Border {
+            color: Color::from_rgb(0.2, 0.2, 0.25),
+            width: 1.0,
+            radius: 6.0.into(),
+        },
+        ..Default::default()
+    };
+    
+    let total_pnl = info.unrealized_pnl + info.realized_pnl;
+    
+    container(
+        column![
+            text("Profit & Loss")
+                .size(14)
+                .color(colors::TEXT_PRIMARY),
+            Space::new().height(Length::Fixed(12.0)),
+            create_info_row("P&L non réalisé", format!("{:.2} USDT", info.unrealized_pnl), Some(if info.unrealized_pnl >= 0.0 { Color::from_rgb(0.0, 0.8, 0.0) } else { Color::from_rgb(0.8, 0.0, 0.0) })),
+            Space::new().height(Length::Fixed(8.0)),
+            create_info_row("P&L réalisé", format!("{:.2} USDT", info.realized_pnl), Some(if info.realized_pnl >= 0.0 { Color::from_rgb(0.0, 0.8, 0.0) } else { Color::from_rgb(0.8, 0.0, 0.0) })),
+            Space::new().height(Length::Fixed(8.0)),
+            create_info_row("P&L total", format!("{:.2} USDT", total_pnl), Some(if total_pnl >= 0.0 { Color::from_rgb(0.0, 0.8, 0.0) } else { Color::from_rgb(0.8, 0.0, 0.0) })),
+        ]
+        .padding(12)
+        .spacing(8)
+    )
+    .style(section_card_style)
+    .into()
+}
+
+/// Crée la section Positions et Risque
+fn create_positions_section(app: &ChartApp) -> Element<'_, Message> {
+    let info = &app.account_info;
+    
+    let section_card_style = |_theme: &iced::Theme| container::Style {
+        background: Some(iced::Background::Color(Color::from_rgb(0.12, 0.12, 0.15))),
+        border: iced::Border {
+            color: Color::from_rgb(0.2, 0.2, 0.25),
+            width: 1.0,
+            radius: 6.0.into(),
+        },
+        ..Default::default()
+    };
+    
+    container(
+        column![
+            text("Positions et Risque")
+                .size(14)
+                .color(colors::TEXT_PRIMARY),
+            Space::new().height(Length::Fixed(12.0)),
+            create_info_row("Positions ouvertes", format!("{}", info.open_positions), None),
+        ]
+        .padding(12)
+        .spacing(8)
+    )
+    .style(section_card_style)
+    .into()
+}
+
 /// Vue pour la section "Compte"
 fn view_bottom_panel_account(app: &ChartApp) -> Element<'_, Message> {
     let is_demo_mode = app.account_type.is_demo();
     let is_real_mode = app.account_type.is_real();
-    let account_type_name = app.account_type.account_type.display_name();
-    let account_type_desc = app.account_type.account_type.description();
     
     // Informations sur le provider actif
     let provider_name = app.provider_config.active_provider.display_name();
@@ -304,100 +1069,6 @@ fn view_bottom_panel_account(app: &ChartApp) -> Element<'_, Message> {
     } else {
         Color::from_rgb(0.8, 0.0, 0.0) // Rouge si non connecté
     };
-    
-    // Style pour les cartes de section
-    let section_card_style = |_theme: &iced::Theme| container::Style {
-        background: Some(iced::Background::Color(Color::from_rgb(0.12, 0.12, 0.15))),
-        border: iced::Border {
-            color: Color::from_rgb(0.2, 0.2, 0.25),
-            width: 1.0,
-            radius: 6.0.into(),
-        },
-        ..Default::default()
-    };
-    
-    // Section "Type de compte"
-    let account_type_section = container(
-        column![
-            // En-tête de section
-            row![
-                text("Type de compte")
-                    .size(14)
-                    .color(colors::TEXT_PRIMARY),
-                Space::new().width(Length::Fill),
-                // Badge du type de compte
-                container(
-                    text(account_type_name)
-                        .size(11)
-                        .color(if is_real_mode {
-                            Color::from_rgb(1.0, 0.7, 0.7)
-                        } else {
-                            Color::from_rgb(0.7, 0.9, 0.7)
-                        })
-                )
-                .padding([3, 8])
-                .style(move |_theme| {
-                    let is_real = is_real_mode;
-                    container::Style {
-                        background: Some(iced::Background::Color(if is_real {
-                            Color::from_rgb(0.3, 0.15, 0.15)
-                        } else {
-                            Color::from_rgb(0.15, 0.3, 0.15)
-                        })),
-                        border: iced::Border {
-                            color: if is_real {
-                                Color::from_rgb(0.8, 0.4, 0.4)
-                            } else {
-                                Color::from_rgb(0.4, 0.8, 0.4)
-                            },
-                            width: 1.0,
-                            radius: 4.0.into(),
-                        },
-                        ..Default::default()
-                    }
-                })
-            ]
-            .align_y(iced::Alignment::Center)
-            .width(Length::Fill),
-            
-            Space::new().height(Length::Fixed(12.0)),
-            
-            // Description du mode actuel
-            container(
-                text(account_type_desc)
-                    .size(11)
-                    .color(if is_real_mode {
-                        Color::from_rgb(1.0, 0.7, 0.7)
-                    } else {
-                        Color::from_rgb(0.7, 0.9, 0.7)
-                    })
-            )
-            .padding([8, 10])
-            .style(move |_theme| {
-                let is_real = is_real_mode;
-                container::Style {
-                    background: Some(iced::Background::Color(if is_real {
-                        Color::from_rgb(0.25, 0.12, 0.12)
-                    } else {
-                        Color::from_rgb(0.12, 0.25, 0.12)
-                    })),
-                    border: iced::Border {
-                        color: if is_real {
-                            Color::from_rgb(0.6, 0.3, 0.3)
-                        } else {
-                            Color::from_rgb(0.3, 0.6, 0.3)
-                        },
-                        width: 1.0,
-                        radius: 4.0.into(),
-                    },
-                    ..Default::default()
-                }
-            }),
-        ]
-        .padding(12)
-        .spacing(8)
-    )
-    .style(section_card_style);
     
     // Layout principal
     container(
@@ -450,8 +1121,23 @@ fn view_bottom_panel_account(app: &ChartApp) -> Element<'_, Message> {
                 
                 Space::new().height(Length::Fixed(20.0)),
                 
-                // Section Type de compte
-                account_type_section,
+                // Section Solde et Équité
+                create_balance_section(app),
+                
+                Space::new().height(Length::Fixed(20.0)),
+                
+                // Section Marge
+                create_margin_section(app),
+                
+                Space::new().height(Length::Fixed(20.0)),
+                
+                // Section P&L
+                create_pnl_section(app),
+                
+                Space::new().height(Length::Fixed(20.0)),
+                
+                // Section Positions et Risque
+                create_positions_section(app),
             ]
             .spacing(0)
             .width(Length::Fill)
@@ -469,9 +1155,9 @@ fn view_bottom_panel_account(app: &ChartApp) -> Element<'_, Message> {
     .into()
 }
 
-/// Affiche le contenu de la section active
-fn view_bottom_panel_content(app: &ChartApp) -> Element<'_, Message> {
-    match app.bottom_panel_sections.active_section {
+/// Affiche le contenu d'une section spécifique (utilisé pour le panneau de droite)
+fn view_bottom_panel_section_content(app: &ChartApp, section: BottomPanelSection) -> Element<'_, Message> {
+    match section {
         BottomPanelSection::Overview => view_bottom_panel_overview(app),
         BottomPanelSection::Logs => view_bottom_panel_logs(app),
         BottomPanelSection::Indicators => view_bottom_panel_indicators(app),
@@ -480,7 +1166,34 @@ fn view_bottom_panel_content(app: &ChartApp) -> Element<'_, Message> {
     }
 }
 
-/// Section en bas du graphique
+/// Affiche le contenu de la section active
+fn view_bottom_panel_content(app: &ChartApp) -> Element<'_, Message> {
+    let active_section = app.bottom_panel_sections.active_bottom_section;
+    // Ne pas afficher la section si elle est dans le panneau de droite
+    if app.bottom_panel_sections.is_section_in_right_panel(active_section) {
+        // Afficher un message indiquant que la section est dans le panneau de droite
+        container(
+            column![
+                text(format!("La section \"{}\" est actuellement dans le panneau de droite.", active_section.display_name()))
+                    .size(14)
+                    .color(colors::TEXT_SECONDARY),
+                Space::new().height(Length::Fixed(10.0)),
+                text("Cliquez sur ← dans le header pour la ramener ici.")
+                    .size(12)
+                    .color(colors::TEXT_SECONDARY),
+            ]
+            .padding(20)
+            .spacing(10)
+        )
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
+    } else {
+        view_bottom_panel_section_content(app, active_section)
+    }
+}
+
+/// Section en bas du graphique avec gestion du drag & drop global
 fn view_bottom_panel(app: &ChartApp) -> Element<'_, Message> {
     if !app.panels.bottom.visible {
         return container(Space::new())
@@ -509,11 +1222,14 @@ fn view_bottom_panel(app: &ChartApp) -> Element<'_, Message> {
     let header_height = 40.0;
     let panel_content_height = app.panels.bottom.size - handle_height - header_height;
     
+    // Détermine si on drag depuis le panneau de droite (pour afficher le feedback)
+    let dragging_from_right = app.dragging_section.is_some() && app.drag_from_right_panel;
+    
     // Englober tout le panneau (poignée + header + contenu) dans mouse_area
-    mouse_area(
+    let panel = mouse_area(
         column![
             bottom_panel_resize_handle(app),
-            bottom_panel_header(&app.bottom_panel_sections),
+            bottom_panel_header(app),
             container(view_bottom_panel_content(app))
                 .width(Length::Fill)
                 .height(Length::Fixed(panel_content_height))
@@ -522,11 +1238,17 @@ fn view_bottom_panel(app: &ChartApp) -> Element<'_, Message> {
         .height(Length::Fixed(app.panels.bottom.size))
     )
     .on_enter(Message::SetBottomPanelFocus(true))
-    .on_exit(Message::SetBottomPanelFocus(false))
-    .into()
+    .on_exit(Message::SetBottomPanelFocus(false));
+    
+    // Ajouter on_press pour terminer le drag si on drague depuis la droite
+    if dragging_from_right {
+        panel.on_press(Message::EndDragSection).into()
+    } else {
+        panel.into()
+    }
 }
 
-/// Vue principale de l'application
+/// Vue principale de l'application avec gestion globale du drag & drop
 pub fn view_main(app: &ChartApp) -> Element<'_, Message> {
     // Récupérer le symbole de la série active pour le titre
     let title_text = app.chart_state.series_manager
@@ -575,14 +1297,38 @@ pub fn view_main(app: &ChartApp) -> Element<'_, Message> {
     };
 
     // Layout complet : Header + Zone principale + Panneau du bas
-    column![
+    let main_layout = column![
         header,
         main_content,
         view_bottom_panel(app)
     ]
     .width(Length::Fill)
-    .height(Length::Fill)
-    .into()
+    .height(Length::Fill);
+    
+    // Si on drag une section, ajouter l'overlay qui suit la souris
+    if let Some(section) = app.dragging_section {
+        // Utiliser la position du drag ou une position par défaut
+        let position = app.drag_position.unwrap_or(iced::Point::new(0.0, 0.0));
+        
+        // Créer un container avec le layout principal et le canvas overlay par-dessus
+        // Le canvas doit être au-dessus de tout pour capturer les événements de souris
+        // On utilise une column avec le layout principal et le canvas overlay en dernier
+        container(
+            column![
+                main_layout,
+                // Canvas overlay qui capture les événements de souris et affiche le composant visuel
+                // Il sera rendu au-dessus de tout car il est en dernier dans la column
+                drag_overlay::drag_overlay(section, position)
+            ]
+            .width(Length::Fill)
+            .height(Length::Fill)
+        )
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
+    } else {
+        main_layout.into()
+    }
 }
 
 /// Vue des settings (style du graphique)

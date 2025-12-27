@@ -56,6 +56,23 @@ impl VolumeScale {
         let normalized = (volume - effective_min) / effective_range;
         self.height * (1.0 - normalized as f32)
     }
+
+    /// Convertit une coordonnée Y en volume (inverse de volume_to_y)
+    pub fn y_to_volume(&self, y: f32) -> f64 {
+        let range = self.max_volume - self.min_volume;
+        if range == 0.0 {
+            return self.min_volume;
+        }
+
+        let margin = range * self.margin_ratio as f64;
+        let effective_min = self.min_volume;
+        let effective_max = self.max_volume + margin;
+        let effective_range = effective_max - effective_min;
+
+        // Inverse de la formule dans volume_to_y
+        let normalized = 1.0 - (y / self.height);
+        effective_min + (normalized as f64 * effective_range)
+    }
 }
 
 #[cfg(test)]

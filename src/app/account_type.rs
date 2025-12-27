@@ -12,21 +12,6 @@ pub enum AccountType {
 }
 
 impl AccountType {
-    /// Retourne le nom d'affichage du type de compte
-    pub fn display_name(&self) -> &'static str {
-        match self {
-            Self::Demo => "Démo (Paper Trading)",
-            Self::Real => "Compte Réel",
-        }
-    }
-    
-    /// Retourne la description du type de compte
-    pub fn description(&self) -> &'static str {
-        match self {
-            Self::Demo => "Mode simulation - Aucune transaction réelle ne sera effectuée",
-            Self::Real => "Mode réel - Les transactions seront effectuées avec le provider actif",
-        }
-    }
 }
 
 /// État du type de compte

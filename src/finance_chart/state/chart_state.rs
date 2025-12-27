@@ -63,6 +63,14 @@ impl ChartState {
         self.series_manager.visible_candles(min_time..max_time)
     }
 
+    /// Retourne toutes les bougies de la première série active
+    /// Utile pour calculer des indicateurs qui nécessitent l'historique complet
+    pub fn all_candles(&self) -> Option<&[super::super::core::Candle]> {
+        self.series_manager.active_series()
+            .next()
+            .map(|series| series.data.all_candles())
+    }
+
     /// Retourne la dernière bougie de la première série active (pour la ligne de prix courant)
     pub fn last_candle(&self) -> Option<&super::super::core::Candle> {
         self.series_manager.active_series()

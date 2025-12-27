@@ -113,35 +113,60 @@ pub struct PanelsState {
     pub right: PanelState,
     /// Panneau du bas
     pub bottom: PanelState,
+    /// Panneau du volume chart (redimensionnable en hauteur)
+    #[serde(default = "default_volume_panel")]
+    pub volume: PanelState,
+    /// Panneau du RSI chart (redimensionnable en hauteur)
+    #[serde(default = "default_rsi_panel")]
+    pub rsi: PanelState,
+    /// Panneau du MACD chart (redimensionnable en hauteur)
+    #[serde(default = "default_macd_panel")]
+    pub macd: PanelState,
+}
+
+/// Fonction helper pour créer un volume panel par défaut lors de la désérialisation
+fn default_volume_panel() -> PanelState {
+    use crate::app::constants::VOLUME_CHART_HEIGHT;
+    PanelState::new(VOLUME_CHART_HEIGHT, MIN_PANEL_SIZE, 400.0)
+}
+
+/// Fonction helper pour créer un RSI panel par défaut lors de la désérialisation
+fn default_rsi_panel() -> PanelState {
+    use crate::app::constants::RSI_CHART_HEIGHT;
+    let mut panel = PanelState::new(RSI_CHART_HEIGHT, MIN_PANEL_SIZE, 400.0);
+    panel.visible = false; // Le RSI panel est masqué par défaut
+    panel
+}
+
+/// Fonction helper pour créer un MACD panel par défaut lors de la désérialisation
+fn default_macd_panel() -> PanelState {
+    use crate::app::constants::MACD_CHART_HEIGHT;
+    let mut panel = PanelState::new(MACD_CHART_HEIGHT, MIN_PANEL_SIZE, 400.0);
+    panel.visible = false; // Le MACD panel est masqué par défaut
+    panel
 }
 
 impl PanelsState {
     pub fn new() -> Self {
-        use crate::app::constants::{RIGHT_PANEL_WIDTH, BOTTOM_PANEL_HEIGHT};
+        use crate::app::constants::{RIGHT_PANEL_WIDTH, BOTTOM_PANEL_HEIGHT, VOLUME_CHART_HEIGHT, RSI_CHART_HEIGHT, MACD_CHART_HEIGHT};
+        let mut rsi_panel = PanelState::new(RSI_CHART_HEIGHT, MIN_PANEL_SIZE, 400.0);
+        rsi_panel.visible = false; // Le RSI panel est masqué par défaut
+        let mut macd_panel = PanelState::new(MACD_CHART_HEIGHT, MIN_PANEL_SIZE, 400.0);
+        macd_panel.visible = false; // Le MACD panel est masqué par défaut
         Self {
             // Taille minimale = juste la poignée (MIN_PANEL_SIZE)
             right: PanelState::new(RIGHT_PANEL_WIDTH, MIN_PANEL_SIZE, 500.0),
             bottom: PanelState::new(BOTTOM_PANEL_HEIGHT, MIN_PANEL_SIZE, 400.0),
+            volume: PanelState::new(VOLUME_CHART_HEIGHT, MIN_PANEL_SIZE, 400.0), // Peut être snappé à MIN_PANEL_SIZE
+            rsi: rsi_panel, // Peut être snappé à MIN_PANEL_SIZE
+            macd: macd_panel, // Peut être snappé à MIN_PANEL_SIZE
         }
     }
     
-    /// Charge l'état depuis un fichier
-    pub fn load_from_file(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let json = std::fs::read_to_string(path)?;
-        let state: PanelsState = serde_json::from_str(&json)?;
-        Ok(state)
-    }
-    
-    /// Sauvegarde l'état dans un fichier
-    pub fn save_to_file(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let json = serde_json::to_string_pretty(self)?;
-        std::fs::write(path, json)?;
-        Ok(())
-    }
     
     /// Retourne true si un panneau a le focus
     pub fn has_focused_panel(&self) -> bool {
-        self.right.focused || self.bottom.focused
+        self.right.focused || self.bottom.focused || self.volume.focused || self.rsi.focused || self.macd.focused
     }
 }
 

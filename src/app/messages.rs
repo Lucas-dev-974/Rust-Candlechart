@@ -61,21 +61,35 @@ pub enum Message {
     CancelProviderConfig,
     
     // === Messages des panneaux latéraux ===
-    ToggleRightPanel,
-    ToggleBottomPanel,
+    ToggleVolumePanel,
+    ToggleRSIPanel,
+    ToggleMACDPanel,
     StartResizeRightPanel(f32),
     StartResizeBottomPanel(f32),
+    StartResizeVolumePanel(f32),
+    StartResizeRSIPanel(f32),
+    StartResizeMACDPanel(f32),
     UpdateResizeRightPanel(f32),
     UpdateResizeBottomPanel(f32),
+    UpdateResizeVolumePanel(f32),
+    UpdateResizeRSIPanel(f32),
+    UpdateResizeMACDPanel(f32),
     EndResizeRightPanel,
     EndResizeBottomPanel,
+    EndResizeVolumePanel,
+    EndResizeRSIPanel,
+    EndResizeMACDPanel,
     
-    // === Messages des sections du panneau du bas ===
-    SelectBottomPanelSection(crate::app::bottom_panel_sections::BottomPanelSection),
+    
+    // === Messages de drag & drop ===
+    StartDragSection(crate::app::bottom_panel_sections::BottomPanelSection),
+    UpdateDragPosition(iced::Point),
+    EndDragSection,
+    DragEnterRightPanel,
+    DragExitRightPanel,
     
     // === Messages du type de compte ===
     ToggleAccountType,
-    SetAccountType(crate::app::account_type::AccountType),
     
     // === Messages de test de connexion au provider ===
     TestProviderConnection,
@@ -84,6 +98,9 @@ pub enum Message {
     // === Messages de focus des panneaux ===
     SetRightPanelFocus(bool),
     SetBottomPanelFocus(bool),
+    SetVolumePanelFocus(bool),
+    SetRSIPanelFocus(bool),
+    SetMACDPanelFocus(bool),
     ClearPanelFocus,
 }
 

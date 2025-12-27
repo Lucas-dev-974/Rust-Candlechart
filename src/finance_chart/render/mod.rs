@@ -10,7 +10,7 @@ pub mod utils;
 
 pub use bar_sizing::{calculate_bar_width, calculate_candle_period};
 pub use candlestick::render_candlesticks;
-pub use crosshair::render_crosshair;
+pub use crosshair::{render_crosshair, render_volume_crosshair, render_rsi_crosshair, render_macd_crosshair};
 pub use current_price::render_current_price_line;
 pub use grid::{render_grid, calculate_nice_step, calculate_nice_time_step, format_time};
 pub use horizontal_line::{draw_horizontal_line, draw_hline_preview, hit_test_hline};

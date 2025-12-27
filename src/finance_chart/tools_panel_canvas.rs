@@ -23,11 +23,12 @@ pub struct ToolsPanelState {
 /// Reçoit une référence immutable, émet des messages
 pub struct ToolsPanelProgram<'a> {
     tools_state: &'a ToolsState,
+    indicators_panel_open: bool,
 }
 
 impl<'a> ToolsPanelProgram<'a> {
-    pub fn new(tools_state: &'a ToolsState) -> Self {
-        Self { tools_state }
+    pub fn new(tools_state: &'a ToolsState, indicators_panel_open: bool) -> Self {
+        Self { tools_state, indicators_panel_open }
     }
 }
 
@@ -135,6 +136,52 @@ impl<'a> Program<ToolsPanelMessage> for ToolsPanelProgram<'a> {
             }
         }
 
+        // Bouton indicateurs en bas
+        let indicators_button_index = tools.len();
+        let bottom_margin = 15.0;
+        let indicators_y = bounds.height - bottom_margin - button_size;
+        let is_hovered = state.hovered_button == Some(indicators_button_index);
+        let is_selected = self.indicators_panel_open;
+
+        // Couleur du fond
+        let bg = if is_selected {
+            button_selected_color
+        } else if is_hovered {
+            button_hover_color
+        } else {
+            button_color
+        };
+
+        // Fond du bouton
+        let button_rect = Path::rectangle(
+            Point::new(padding, indicators_y),
+            Size::new(button_size, button_size),
+        );
+        frame.fill(&button_rect, bg);
+
+        // Icône indicateurs (graphique avec lignes)
+        let cx = padding + button_size / 2.0;
+        let cy = indicators_y + button_size / 2.0;
+        let icon_size = 14.0;
+        
+        // Dessiner un graphique simple (lignes montantes/descendantes)
+        let graph_path = Path::new(|builder| {
+            let step_x = icon_size / 4.0;
+            let base_y = cy;
+            let amplitude = icon_size / 3.0;
+            
+            builder.move_to(Point::new(cx - icon_size / 2.0, base_y + amplitude));
+            builder.line_to(Point::new(cx - icon_size / 2.0 + step_x, base_y - amplitude / 2.0));
+            builder.line_to(Point::new(cx - icon_size / 2.0 + step_x * 2.0, base_y + amplitude / 2.0));
+            builder.line_to(Point::new(cx - icon_size / 2.0 + step_x * 3.0, base_y - amplitude));
+            builder.line_to(Point::new(cx + icon_size / 2.0, base_y + amplitude / 3.0));
+        });
+        
+        let icon_stroke = canvas::Stroke::default()
+            .with_color(icon_color)
+            .with_width(1.5);
+        frame.stroke(&graph_path, icon_stroke);
+
         vec![frame.into_geometry()]
     }
 
@@ -150,6 +197,9 @@ impl<'a> Program<ToolsPanelMessage> for ToolsPanelProgram<'a> {
         let start_y = 15.0;
         let spacing = 8.0;
         let tools_count = 2;
+        let bottom_margin = 15.0;
+        let indicators_y = bounds.height - bottom_margin - button_size;
+        let indicators_button_index = tools_count;
 
         match event {
             Event::Mouse(mouse::Event::CursorMoved { .. }) => {
@@ -157,6 +207,7 @@ impl<'a> Program<ToolsPanelMessage> for ToolsPanelProgram<'a> {
                 panel_state.hovered_button = None;
 
                 if let Some(pos) = cursor.position_in(bounds) {
+                    // Vérifier les outils
                     for i in 0..tools_count {
                         let y = start_y + (i as f32) * (button_size + spacing);
                         if pos.x >= padding && pos.x <= padding + button_size &&
@@ -164,6 +215,12 @@ impl<'a> Program<ToolsPanelMessage> for ToolsPanelProgram<'a> {
                             panel_state.hovered_button = Some(i);
                             break;
                         }
+                    }
+                    
+                    // Vérifier le bouton indicateurs
+                    if pos.x >= padding && pos.x <= padding + button_size &&
+                       pos.y >= indicators_y && pos.y <= indicators_y + button_size {
+                        panel_state.hovered_button = Some(indicators_button_index);
                     }
                 }
 
@@ -175,6 +232,7 @@ impl<'a> Program<ToolsPanelMessage> for ToolsPanelProgram<'a> {
                 if let Some(pos) = cursor.position_in(bounds) {
                     let tools = [Tool::Rectangle, Tool::HorizontalLine];
                     
+                    // Vérifier les outils
                     for (i, tool) in tools.iter().enumerate() {
                         let y = start_y + (i as f32) * (button_size + spacing);
                         if pos.x >= padding && pos.x <= padding + button_size &&
@@ -182,6 +240,12 @@ impl<'a> Program<ToolsPanelMessage> for ToolsPanelProgram<'a> {
                             // Émettre le message au lieu de muter directement
                             return Some(Action::publish(ToolsPanelMessage::ToggleTool { tool: *tool }));
                         }
+                    }
+                    
+                    // Vérifier le bouton indicateurs
+                    if pos.x >= padding && pos.x <= padding + button_size &&
+                       pos.y >= indicators_y && pos.y <= indicators_y + button_size {
+                        return Some(Action::publish(ToolsPanelMessage::ToggleIndicatorsPanel));
                     }
                 }
             }
@@ -207,8 +271,8 @@ impl<'a> Program<ToolsPanelMessage> for ToolsPanelProgram<'a> {
 
 /// Crée un élément canvas pour le panel d'outils
 /// Retourne un Element qui émet ToolsPanelMessage
-pub fn tools_panel<'a>(tools_state: &'a ToolsState) -> Element<'a, ToolsPanelMessage> {
-    Canvas::new(ToolsPanelProgram::new(tools_state))
+pub fn tools_panel<'a>(tools_state: &'a ToolsState, indicators_panel_open: bool) -> Element<'a, ToolsPanelMessage> {
+    Canvas::new(ToolsPanelProgram::new(tools_state, indicators_panel_open))
         .width(Length::Fixed(TOOLS_PANEL_WIDTH))
         .height(Length::Fill)
         .into()

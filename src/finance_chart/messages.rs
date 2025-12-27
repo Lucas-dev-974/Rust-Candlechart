@@ -101,6 +101,8 @@ pub enum XAxisMessage {
 pub enum ToolsPanelMessage {
     /// Sélectionner/désélectionner un outil
     ToggleTool { tool: super::tools_canvas::Tool },
+    /// Ouvrir/fermer l'onglet d'indicateurs
+    ToggleIndicatorsPanel,
 }
 
 /// Messages émis par le panel de séries

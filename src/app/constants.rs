@@ -23,3 +23,12 @@ pub const BOTTOM_PANEL_HEIGHT: f32 = 150.0;
 /// Hauteur du graphique de volume (sous le graphique principal)
 pub const VOLUME_CHART_HEIGHT: f32 = 120.0;
 
+/// Hauteur du graphique RSI (sous le graphique principal)
+pub const RSI_CHART_HEIGHT: f32 = 120.0;
+
+/// Hauteur du graphique MACD (sous le graphique principal)
+pub const MACD_CHART_HEIGHT: f32 = 120.0;
+
+/// Largeur de l'onglet d'indicateurs
+pub const INDICATORS_PANEL_WIDTH: f32 = 250.0;
+

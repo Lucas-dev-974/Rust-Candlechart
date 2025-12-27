@@ -32,6 +32,15 @@ pub mod binance_provider;
 pub mod provider_config;
 pub mod volume_chart;
 pub mod volume_axis;
+pub mod rsi_chart;
+pub mod rsi_axis;
+pub mod rsi_data;
+pub mod macd_data;
+pub mod macd_scaling;
+pub mod macd_chart;
+pub mod macd_axis;
+pub mod indicators;
+pub mod axis_style;
 
 pub use state::ChartState;
 pub use widget::chart;
@@ -47,5 +56,9 @@ pub use binance_provider::BinanceProvider;
 pub use provider_config::{ProviderConfigManager, ProviderType};
 pub use volume_chart::volume_chart;
 pub use volume_axis::volume_y_axis;
+pub use rsi_chart::rsi_chart;
+pub use rsi_axis::rsi_y_axis;
+pub use macd_chart::macd_chart;
+pub use macd_axis::macd_y_axis;
 pub use scale::VolumeScale;
 

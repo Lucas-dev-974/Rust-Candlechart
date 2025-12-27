@@ -8,6 +8,7 @@ use crate::finance_chart::render::grid::format_time;
 use crate::finance_chart::render::utils::format_price_compact;
 
 /// Style du crosshair
+#[derive(Clone)]
 pub struct CrosshairStyle {
     pub line_color: Color,
     pub line_width: f32,
@@ -127,5 +128,168 @@ fn draw_time_label(frame: &mut Frame, style: &CrosshairStyle, x: f32, height: f3
         ..Text::default()
     };
     frame.fill_text(text);
+}
+
+/// Dessine uniquement la ligne verticale du crosshair (pour synchroniser avec le graphique principal)
+/// Utilise le timestamp du viewport principal pour calculer la position X dans ce graphique
+pub fn render_crosshair_vertical_only(
+    frame: &mut Frame,
+    main_viewport: &Viewport,
+    main_mouse_position: Option<Point>,
+    chart_bounds_width: f32,
+    chart_bounds_height: f32,
+    style: Option<CrosshairStyle>,
+) {
+    let style = style.unwrap_or_default();
+    
+    // Si la souris est dans le graphique principal, synchroniser la ligne verticale
+    if let Some(mouse_pos) = main_mouse_position {
+        // On utilise le timestamp pour synchroniser la position X entre tous les graphiques
+        let (min_time, max_time) = main_viewport.time_scale().time_range();
+        
+        // Calculer le timestamp correspondant à la position X dans le graphique principal
+        let timestamp = main_viewport.time_scale().x_to_time(mouse_pos.x);
+        
+        // Convertir ce timestamp en position X dans ce graphique
+        use crate::finance_chart::scale::TimeScale;
+        let chart_time_scale = TimeScale::new(min_time, max_time, chart_bounds_width);
+        let x = chart_time_scale.time_to_x(timestamp);
+        
+        // Ne dessiner que si dans les bounds de ce graphique
+        if x >= 0.0 && x <= chart_bounds_width {
+            // Ligne verticale
+            let vertical_line = Path::new(|builder| {
+                builder.move_to(Point::new(x, 0.0));
+                builder.line_to(Point::new(x, chart_bounds_height));
+            });
+            let stroke = Stroke::default()
+                .with_color(style.line_color)
+                .with_width(style.line_width);
+            frame.stroke(&vertical_line, stroke);
+            
+            // Label du temps (sur le bord bas)
+            let time_label = format_time(timestamp, 3600);
+            draw_time_label(frame, &style, x, chart_bounds_height, &time_label);
+        }
+    }
+}
+
+/// Dessine le crosshair pour le graphique de volume
+/// Affiche la ligne verticale synchronisée et le label du volume à la position Y de la souris
+pub fn render_volume_crosshair(
+    frame: &mut Frame,
+    main_viewport: &Viewport,
+    main_mouse_position: Option<Point>,
+    volume_scale: &crate::finance_chart::scale::VolumeScale,
+    chart_bounds_width: f32,
+    chart_bounds_height: f32,
+    mouse_y_in_chart: Option<f32>,
+    style: Option<CrosshairStyle>,
+) {
+    let style_clone = style.clone();
+    render_crosshair_vertical_only(frame, main_viewport, main_mouse_position, chart_bounds_width, chart_bounds_height, style_clone);
+    
+    // Si la souris est dans ce graphique, afficher aussi la ligne horizontale et le label du volume
+    if let Some(y) = mouse_y_in_chart {
+        if y >= 0.0 && y <= chart_bounds_height {
+            let style = style.unwrap_or_default();
+            
+            // Ligne horizontale
+            let horizontal_line = Path::new(|builder| {
+                builder.move_to(Point::new(0.0, y));
+                builder.line_to(Point::new(chart_bounds_width, y));
+            });
+            let stroke = Stroke::default()
+                .with_color(style.line_color)
+                .with_width(style.line_width);
+            frame.stroke(&horizontal_line, stroke);
+            
+            // Label du volume (sur le bord droit)
+            let volume = volume_scale.y_to_volume(y);
+            let volume_label = format!("{:.0}", volume);
+            draw_price_label(frame, &style, y, chart_bounds_width, &volume_label);
+        }
+    }
+}
+
+/// Dessine le crosshair pour le graphique RSI
+/// Affiche la ligne verticale synchronisée et le label du RSI à la position Y de la souris
+pub fn render_rsi_crosshair(
+    frame: &mut Frame,
+    main_viewport: &Viewport,
+    main_mouse_position: Option<Point>,
+    chart_bounds_width: f32,
+    chart_bounds_height: f32,
+    mouse_y_in_chart: Option<f32>,
+    style: Option<CrosshairStyle>,
+) {
+    let style_clone = style.clone();
+    render_crosshair_vertical_only(frame, main_viewport, main_mouse_position, chart_bounds_width, chart_bounds_height, style_clone);
+    
+    // Si la souris est dans ce graphique, afficher aussi la ligne horizontale et le label du RSI
+    if let Some(y) = mouse_y_in_chart {
+        if y >= 0.0 && y <= chart_bounds_height {
+            let style = style.unwrap_or_default();
+            
+            // Ligne horizontale
+            let horizontal_line = Path::new(|builder| {
+                builder.move_to(Point::new(0.0, y));
+                builder.line_to(Point::new(chart_bounds_width, y));
+            });
+            let stroke = Stroke::default()
+                .with_color(style.line_color)
+                .with_width(style.line_width);
+            frame.stroke(&horizontal_line, stroke);
+            
+            // Label du RSI (sur le bord droit)
+            // RSI va de 0 (bas) à 100 (haut)
+            let normalized_rsi = 1.0 - (y / chart_bounds_height);
+            let rsi_value = (normalized_rsi * 100.0).clamp(0.0, 100.0);
+            let rsi_label = format!("{:.1}", rsi_value);
+            draw_price_label(frame, &style, y, chart_bounds_width, &rsi_label);
+        }
+    }
+}
+
+/// Dessine le crosshair pour le graphique MACD
+/// Affiche la ligne verticale synchronisée et le label du MACD à la position Y de la souris
+pub fn render_macd_crosshair(
+    frame: &mut Frame,
+    main_viewport: &Viewport,
+    main_mouse_position: Option<Point>,
+    chart_bounds_width: f32,
+    chart_bounds_height: f32,
+    mouse_y_in_chart: Option<f32>,
+    y_to_macd: &dyn Fn(f32) -> f64,
+    style: Option<CrosshairStyle>,
+) {
+    let style_clone = style.clone();
+    render_crosshair_vertical_only(frame, main_viewport, main_mouse_position, chart_bounds_width, chart_bounds_height, style_clone);
+    
+    // Si la souris est dans ce graphique, afficher aussi la ligne horizontale et le label du MACD
+    if let Some(y) = mouse_y_in_chart {
+        if y >= 0.0 && y <= chart_bounds_height {
+            let style = style.unwrap_or_default();
+            
+            // Ligne horizontale
+            let horizontal_line = Path::new(|builder| {
+                builder.move_to(Point::new(0.0, y));
+                builder.line_to(Point::new(chart_bounds_width, y));
+            });
+            let stroke = Stroke::default()
+                .with_color(style.line_color)
+                .with_width(style.line_width);
+            frame.stroke(&horizontal_line, stroke);
+            
+            // Label du MACD (sur le bord droit)
+            let macd_value = y_to_macd(y);
+            let macd_label = if macd_value.abs() >= 1.0 {
+                format!("{:.2}", macd_value)
+            } else {
+                format!("{:.4}", macd_value)
+            };
+            draw_price_label(frame, &style, y, chart_bounds_width, &macd_label);
+        }
+    }
 }
 
