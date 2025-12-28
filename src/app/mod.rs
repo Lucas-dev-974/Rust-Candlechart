@@ -9,6 +9,7 @@ pub mod messages;
 pub mod app_state;
 pub mod data_loading;
 pub mod realtime;
+pub mod realtime_utils;
 pub mod handlers;
 pub mod views;
 pub mod view_styles;

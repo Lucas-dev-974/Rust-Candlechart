@@ -2,7 +2,7 @@
 
 use iced::{mouse, Point};
 
-use crate::finance_chart::tools_canvas::{DrawnRectangle, EditMode, EditState, HANDLE_SIZE};
+use crate::finance_chart::tools::{DrawnRectangle, EditMode, EditState, HANDLE_SIZE};
 use crate::finance_chart::viewport::Viewport;
 
 /// Épaisseur de la zone de détection des bords (en pixels)

@@ -1,8 +1,8 @@
-//! Style commun pour les axes des indicateurs techniques
+//! Style commun pour les axes du graphique et des indicateurs techniques
 
 use iced::Color;
 
-/// Style pour l'axe des indicateurs techniques (RSI, MACD, etc.)
+/// Style pour les axes (prix, temps, indicateurs)
 pub struct AxisStyle {
     pub background_color: Color,
     pub text_color: Color,
@@ -18,5 +18,4 @@ impl Default for AxisStyle {
         }
     }
 }
-
 

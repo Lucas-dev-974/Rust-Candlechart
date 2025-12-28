@@ -18,9 +18,7 @@ pub enum Tool {
 /// Mode d'édition d'un rectangle
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EditMode {
-    /// Déplacement du rectangle entier
     Move,
-    /// Redimensionnement depuis un coin ou un bord
     ResizeTopLeft,
     ResizeTopRight,
     ResizeBottomLeft,
@@ -31,23 +29,13 @@ pub enum EditMode {
     ResizeRight,
 }
 
-// ============================================================================
-// Rectangle dessiné
-// ============================================================================
-
 /// Rectangle dessiné sur le graphique
-/// Stocké en coordonnées de graphique (timestamp, prix) pour rester cohérent avec le zoom/pan
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DrawnRectangle {
-    /// Timestamp de début (coin gauche)
     pub start_time: i64,
-    /// Prix de début (coin haut ou bas)
     pub start_price: f64,
-    /// Timestamp de fin (coin droit)
     pub end_time: i64,
-    /// Prix de fin (coin opposé)
     pub end_price: f64,
-    /// Couleur du rectangle (RGBA)
     #[serde(with = "color_serde")]
     pub color: Color,
 }
@@ -59,26 +47,18 @@ impl DrawnRectangle {
             start_price,
             end_time,
             end_price,
-            color: Color::from_rgba(0.2, 0.6, 1.0, 0.3), // Bleu semi-transparent par défaut
+            color: Color::from_rgba(0.2, 0.6, 1.0, 0.3),
         }
     }
 }
 
-// ============================================================================
-// Ligne horizontale
-// ============================================================================
-
 /// Ligne horizontale dessinée sur le graphique
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DrawnHorizontalLine {
-    /// Niveau de prix
     pub price: f64,
-    /// Couleur de la ligne (RGBA)
     #[serde(with = "color_serde")]
     pub color: Color,
-    /// Épaisseur de la ligne
     pub width: f32,
-    /// Style pointillé
     pub dashed: bool,
 }
 
@@ -86,16 +66,12 @@ impl DrawnHorizontalLine {
     pub fn new(price: f64) -> Self {
         Self {
             price,
-            color: Color::from_rgba(1.0, 0.8, 0.0, 0.8), // Jaune par défaut
+            color: Color::from_rgba(1.0, 0.8, 0.0, 0.8),
             width: 1.5,
             dashed: true,
         }
     }
 }
-
-// ============================================================================
-// Sérialisation des couleurs
-// ============================================================================
 
 mod color_serde {
     use iced::Color;
@@ -131,43 +107,15 @@ mod color_serde {
     }
 }
 
-// ============================================================================
-// Système d'historique (Undo/Redo)
-// ============================================================================
-
 /// Action enregistrée dans l'historique
 #[derive(Debug, Clone)]
 pub enum Action {
-    /// Création d'un rectangle
-    CreateRectangle {
-        rect: DrawnRectangle,
-    },
-    /// Suppression d'un rectangle
-    DeleteRectangle {
-        index: usize,
-        rect: DrawnRectangle,
-    },
-    /// Modification d'un rectangle
-    ModifyRectangle {
-        index: usize,
-        old_rect: DrawnRectangle,
-        new_rect: DrawnRectangle,
-    },
-    /// Création d'une ligne horizontale
-    CreateHLine {
-        line: DrawnHorizontalLine,
-    },
-    /// Suppression d'une ligne horizontale
-    DeleteHLine {
-        index: usize,
-        line: DrawnHorizontalLine,
-    },
-    /// Modification d'une ligne horizontale
-    ModifyHLine {
-        index: usize,
-        old_line: DrawnHorizontalLine,
-        new_line: DrawnHorizontalLine,
-    },
+    CreateRectangle { rect: DrawnRectangle },
+    DeleteRectangle { index: usize, rect: DrawnRectangle },
+    ModifyRectangle { index: usize, old_rect: DrawnRectangle, new_rect: DrawnRectangle },
+    CreateHLine { line: DrawnHorizontalLine },
+    DeleteHLine { index: usize, line: DrawnHorizontalLine },
+    ModifyHLine { index: usize, old_line: DrawnHorizontalLine, new_line: DrawnHorizontalLine },
 }
 
 /// Gestionnaire d'historique pour undo/redo
@@ -178,7 +126,6 @@ pub struct History {
 }
 
 impl History {
-    /// Enregistre une nouvelle action
     pub fn record(&mut self, action: Action) {
         self.redo_stack.clear();
         self.undo_stack.push(action);
@@ -187,7 +134,6 @@ impl History {
         }
     }
 
-    /// Annule la dernière action (Ctrl+Z)
     pub fn undo(
         &mut self,
         rectangles: &mut Vec<DrawnRectangle>,
@@ -195,9 +141,7 @@ impl History {
     ) -> bool {
         if let Some(action) = self.undo_stack.pop() {
             match &action {
-                Action::CreateRectangle { .. } => {
-                    rectangles.pop();
-                }
+                Action::CreateRectangle { .. } => { rectangles.pop(); }
                 Action::DeleteRectangle { index, rect } => {
                     let idx = (*index).min(rectangles.len());
                     rectangles.insert(idx, rect.clone());
@@ -207,9 +151,7 @@ impl History {
                         rectangles[*index] = old_rect.clone();
                     }
                 }
-                Action::CreateHLine { .. } => {
-                    hlines.pop();
-                }
+                Action::CreateHLine { .. } => { hlines.pop(); }
                 Action::DeleteHLine { index, line } => {
                     let idx = (*index).min(hlines.len());
                     hlines.insert(idx, line.clone());
@@ -227,7 +169,6 @@ impl History {
         }
     }
 
-    /// Rétablit la dernière action annulée (Ctrl+Y)
     pub fn redo(
         &mut self,
         rectangles: &mut Vec<DrawnRectangle>,
@@ -235,9 +176,7 @@ impl History {
     ) -> bool {
         if let Some(action) = self.redo_stack.pop() {
             match &action {
-                Action::CreateRectangle { rect } => {
-                    rectangles.push(rect.clone());
-                }
+                Action::CreateRectangle { rect } => { rectangles.push(rect.clone()); }
                 Action::DeleteRectangle { index, .. } => {
                     let idx = (*index).min(rectangles.len().saturating_sub(1));
                     if idx < rectangles.len() {
@@ -249,9 +188,7 @@ impl History {
                         rectangles[*index] = new_rect.clone();
                     }
                 }
-                Action::CreateHLine { line } => {
-                    hlines.push(line.clone());
-                }
+                Action::CreateHLine { line } => { hlines.push(line.clone()); }
                 Action::DeleteHLine { index, .. } => {
                     let idx = (*index).min(hlines.len().saturating_sub(1));
                     if idx < hlines.len() {
@@ -271,10 +208,6 @@ impl History {
         }
     }
 }
-
-// ============================================================================
-// États d'édition
-// ============================================================================
 
 /// État d'édition d'un rectangle
 #[derive(Debug, Clone, Default)]
@@ -400,33 +333,17 @@ impl DrawingState {
     }
 }
 
-// ============================================================================
-// État principal des outils
-// ============================================================================
-
 /// État partagé du panel d'outils
 #[derive(Debug, Clone, Default)]
 pub struct ToolsState {
-    /// Outil actuellement sélectionné
     pub selected_tool: Option<Tool>,
-    /// Rectangles dessinés
     pub rectangles: Vec<DrawnRectangle>,
-    /// Lignes horizontales dessinées
     pub horizontal_lines: Vec<DrawnHorizontalLine>,
-    /// État de dessin en cours
     pub drawing: DrawingState,
-    /// État d'édition des rectangles
     pub editing: EditState,
-    /// État d'édition des lignes horizontales
     pub hline_editing: HLineEditState,
-    /// Historique des actions (undo/redo)
     pub history: History,
 }
-
-
-// ============================================================================
-// Sauvegarde / Chargement des dessins
-// ============================================================================
 
 /// Structure pour la sérialisation des dessins
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -436,7 +353,6 @@ pub struct DrawingsData {
 }
 
 impl ToolsState {
-    /// Exporte les dessins en JSON
     pub fn export_drawings(&self) -> Result<String, serde_json::Error> {
         let data = DrawingsData {
             rectangles: self.rectangles.clone(),
@@ -445,26 +361,24 @@ impl ToolsState {
         serde_json::to_string_pretty(&data)
     }
 
-    /// Importe les dessins depuis JSON
     pub fn import_drawings(&mut self, json: &str) -> Result<(), serde_json::Error> {
         let data: DrawingsData = serde_json::from_str(json)?;
         self.rectangles = data.rectangles;
         self.horizontal_lines = data.horizontal_lines;
-        self.history = History::default(); // Reset history après import
+        self.history = History::default();
         Ok(())
     }
 
-    /// Sauvegarde les dessins dans un fichier
     pub fn save_to_file(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
         let json = self.export_drawings()?;
         std::fs::write(path, json)?;
         Ok(())
     }
 
-    /// Charge les dessins depuis un fichier
     pub fn load_from_file(&mut self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
         let json = std::fs::read_to_string(path)?;
         self.import_drawings(&json)?;
         Ok(())
     }
 }
+

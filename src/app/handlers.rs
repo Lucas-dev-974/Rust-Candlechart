@@ -5,7 +5,7 @@
 
 use crate::finance_chart::{
     ChartMessage,
-    tools_canvas::Action as HistoryAction,
+    tools::Action as HistoryAction,
 };
 use crate::app::app_state::ChartApp;
 

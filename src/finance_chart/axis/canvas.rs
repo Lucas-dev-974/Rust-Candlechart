@@ -7,9 +7,10 @@ use iced::widget::canvas::{Canvas, Frame, Geometry, Program, Text, Action, Path}
 use iced::{Color, Element, Event, Length, Point, Rectangle, Size};
 use iced::mouse;
 
-use super::state::ChartState;
-use super::render::{calculate_nice_step, calculate_nice_time_step, format_time};
-use super::messages::{YAxisMessage, XAxisMessage};
+use crate::finance_chart::state::ChartState;
+use crate::finance_chart::render::{calculate_nice_step, calculate_nice_time_step, format_time};
+use crate::finance_chart::messages::{YAxisMessage, XAxisMessage};
+use super::style::AxisStyle;
 
 /// Largeur du canvas Y (axe des prix)
 pub const Y_AXIS_WIDTH: f32 = 43.0;
@@ -65,23 +66,6 @@ fn calculate_time_remaining(candle_timestamp: i64, interval: &str) -> String {
         format!("{}m {}s", minutes, seconds)
     } else {
         format!("{}s", seconds)
-    }
-}
-
-/// Style pour les axes
-pub struct AxisStyle {
-    pub text_color: Color,
-    pub text_size: f32,
-    pub background_color: Color,
-}
-
-impl Default for AxisStyle {
-    fn default() -> Self {
-        Self {
-            text_color: Color::from_rgba(0.8, 0.8, 0.8, 1.0),
-            text_size: 11.0,
-            background_color: Color::from_rgb(0.08, 0.08, 0.10),
-        }
     }
 }
 
@@ -246,7 +230,6 @@ impl<'a> Program<YAxisMessage> for YAxisProgram<'a> {
                         let delta_y = current_y - start_y;
                         
                         // Calculer le facteur de zoom basé sur le déplacement
-                        // Vers le haut (delta négatif) = zoom in, vers le bas = zoom out
                         let zoom_factor = if delta_y.abs() > 2.0 {
                             if delta_y > 0.0 {
                                 1.02 // Zoom out
@@ -258,9 +241,7 @@ impl<'a> Program<YAxisMessage> for YAxisProgram<'a> {
                         };
                         
                         if zoom_factor != 1.0 {
-                            // Mettre à jour la position de départ pour le prochain mouvement
                             axis_state.drag_start_y = Some(current_y);
-                            // Émettre le message de zoom
                             return Some(Action::publish(YAxisMessage::ZoomVertical { factor: zoom_factor }));
                         }
                     }
@@ -280,7 +261,6 @@ impl<'a> Program<YAxisMessage> for YAxisProgram<'a> {
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> mouse::Interaction {
-        // Changer le curseur si la souris est sur l'axe Y
         if cursor.is_over(bounds) {
             mouse::Interaction::ResizingVertically
         } else {
@@ -290,7 +270,6 @@ impl<'a> Program<YAxisMessage> for YAxisProgram<'a> {
 }
 
 /// Crée un élément canvas pour l'axe Y
-/// Retourne un Element qui émet YAxisMessage
 pub fn y_axis<'a>(chart_state: &'a ChartState) -> Element<'a, YAxisMessage> {
     Canvas::new(YAxisProgram::new(chart_state))
         .width(Length::Fixed(Y_AXIS_WIDTH))
@@ -312,7 +291,6 @@ pub struct XAxisState {
 }
 
 /// Program pour l'axe X (temps)
-/// Reçoit une référence immutable, émet des messages
 pub struct XAxisProgram<'a> {
     chart_state: &'a ChartState,
 }
@@ -405,8 +383,6 @@ impl<'a> Program<XAxisMessage> for XAxisProgram<'a> {
                     if let Some(start_x) = axis_state.drag_start_x {
                         let delta_x = current_x - start_x;
                         
-                        // Calculer le facteur de zoom basé sur le déplacement
-                        // Vers la droite (delta positif) = zoom out, vers la gauche = zoom in
                         let zoom_factor = if delta_x.abs() > 2.0 {
                             if delta_x > 0.0 {
                                 1.02 // Zoom out
@@ -418,9 +394,7 @@ impl<'a> Program<XAxisMessage> for XAxisProgram<'a> {
                         };
                         
                         if zoom_factor != 1.0 {
-                            // Mettre à jour la position de départ pour le prochain mouvement
                             axis_state.drag_start_x = Some(current_x);
-                            // Émettre le message de zoom
                             return Some(Action::publish(XAxisMessage::ZoomHorizontal { factor: zoom_factor }));
                         }
                     }
@@ -440,7 +414,6 @@ impl<'a> Program<XAxisMessage> for XAxisProgram<'a> {
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> mouse::Interaction {
-        // Changer le curseur si la souris est sur l'axe X
         if cursor.is_over(bounds) {
             mouse::Interaction::ResizingHorizontally
         } else {
@@ -450,10 +423,10 @@ impl<'a> Program<XAxisMessage> for XAxisProgram<'a> {
 }
 
 /// Crée un élément canvas pour l'axe X
-/// Retourne un Element qui émet XAxisMessage
 pub fn x_axis<'a>(chart_state: &'a ChartState) -> Element<'a, XAxisMessage> {
     Canvas::new(XAxisProgram::new(chart_state))
         .width(Length::Fill)
         .height(Length::Fixed(X_AXIS_HEIGHT))
         .into()
 }
+

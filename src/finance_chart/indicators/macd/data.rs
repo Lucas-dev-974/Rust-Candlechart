@@ -3,25 +3,21 @@
 //! Ce module contient la logique partagée pour calculer le MACD avec toutes les bougies
 //! et extraire les valeurs correspondant aux bougies visibles.
 
-use super::state::ChartState;
-use super::core::Candle;
-use super::indicators::{calculate_macd, MacdValue, MACD_FAST_PERIOD, MACD_SLOW_PERIOD, MACD_SIGNAL_PERIOD};
+use crate::finance_chart::state::ChartState;
+use crate::finance_chart::core::Candle;
+use super::calc::{calculate_macd, MacdValue, MACD_FAST_PERIOD, MACD_SLOW_PERIOD, MACD_SIGNAL_PERIOD};
 
 /// Calcule le MACD pour toutes les bougies et retourne les valeurs MACD et les bougies visibles
 ///
 /// # Arguments
 /// * `chart_state` - L'état du graphique contenant les bougies
+/// * `all_macd_values` - Toutes les valeurs MACD pré-calculées
 ///
 /// # Retourne
 /// Un tuple contenant :
-/// - Toutes les valeurs MACD calculées (doit être gardé en vie)
-/// - Les valeurs MACD correspondant aux bougies visibles (références)
+/// - Les valeurs MACD correspondant aux bougies visibles
 /// - Les bougies visibles
 /// - L'index de début des bougies visibles
-///
-/// # Note
-/// Les références dans le tuple pointent vers `all_macd_values` qui doit rester en vie
-/// pendant l'utilisation des références.
 pub fn calculate_macd_data<'a>(
     chart_state: &'a ChartState,
     all_macd_values: &'a [Option<MacdValue>],
@@ -114,14 +110,11 @@ pub fn calculate_macd_range(
 /// Récupère la dernière valeur MACD valide
 ///
 /// # Arguments
-/// * `all_macd_values` - Toutes les valeurs MACD pré-calculées (optionnel)
 /// * `chart_state` - L'état du graphique (utilisé si all_macd_values est None)
+/// * `all_macd_values` - Toutes les valeurs MACD pré-calculées (optionnel)
 ///
 /// # Retourne
 /// La dernière valeur MACD valide, ou `None` si aucune n'est disponible
-///
-/// # Note
-/// Si `all_macd_values` est fourni, cette fonction évite de recalculer toutes les valeurs MACD.
 pub fn get_last_macd_value(
     chart_state: &ChartState,
     all_macd_values: Option<&Vec<Option<MacdValue>>>,
@@ -144,7 +137,6 @@ pub fn get_last_macd_value(
                 MACD_SLOW_PERIOD,
                 MACD_SIGNAL_PERIOD,
             );
-            // Prendre la dernière valeur MACD valide
             macd_values.iter().rev().find_map(|opt| opt.clone())
         })
 }

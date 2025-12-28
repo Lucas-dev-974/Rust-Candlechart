@@ -4,7 +4,7 @@
 //! l'application centrale gère les mutations d'état.
 
 use iced::Point;
-use super::tools_canvas::EditMode;
+use super::tools::EditMode;
 
 /// Messages émis par le canvas principal du graphique
 #[derive(Debug, Clone)]
@@ -100,7 +100,7 @@ pub enum XAxisMessage {
 #[derive(Debug, Clone)]
 pub enum ToolsPanelMessage {
     /// Sélectionner/désélectionner un outil
-    ToggleTool { tool: super::tools_canvas::Tool },
+    ToggleTool { tool: super::tools::Tool },
     /// Ouvrir/fermer l'onglet d'indicateurs
     ToggleIndicatorsPanel,
 }

@@ -17,7 +17,7 @@ use super::render::{
 };
 use super::interaction::{hit_test_rectangles, cursor_for_edit_mode};
 use super::state::ChartState;
-use super::tools_canvas::{Tool, ToolsState};
+use super::tools::{Tool, ToolsState};
 use super::settings::{SettingsState, ChartStyle};
 use super::messages::ChartMessage;
 

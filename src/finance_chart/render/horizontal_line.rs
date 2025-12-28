@@ -3,7 +3,7 @@
 use iced::widget::canvas::{Frame, Path, Stroke, Text};
 use iced::{Color, Point, Size};
 
-use crate::finance_chart::tools_canvas::DrawnHorizontalLine;
+use crate::finance_chart::tools::DrawnHorizontalLine;
 use crate::finance_chart::viewport::Viewport;
 use crate::finance_chart::render::utils::format_price_badge;
 

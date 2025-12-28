@@ -6,9 +6,9 @@ use iced::widget::canvas::{Canvas, Frame, Geometry, Program, Text};
 use iced::{Color, Element, Length, Point, Rectangle};
 use iced::mouse::Cursor;
 
-use super::scale::VolumeScale;
-use super::render::calculate_nice_step;
-use super::axis_canvas::Y_AXIS_WIDTH;
+use crate::finance_chart::scale::VolumeScale;
+use crate::finance_chart::render::calculate_nice_step;
+use crate::finance_chart::axis::Y_AXIS_WIDTH;
 
 /// Style pour l'axe des volumes
 struct AxisStyle {
@@ -73,7 +73,6 @@ impl<Message> Program<Message> for VolumeAxisProgram {
 
             // Ne dessiner que si visible
             if y >= 0.0 && y <= bounds.height {
-                // Formater le volume
                 let label = if volume_step >= 1.0 {
                     format!("{:.0}", volume)
                 } else if volume_step >= 0.1 {
@@ -100,7 +99,6 @@ impl<Message> Program<Message> for VolumeAxisProgram {
 }
 
 /// Crée un élément canvas pour l'axe Y des volumes
-/// Utilise la même largeur que l'axe Y des prix pour l'alignement
 pub fn volume_y_axis<Message: 'static>(volume_scale: VolumeScale) -> Element<'static, Message> {
     Canvas::new(VolumeAxisProgram::new(volume_scale))
         .width(Length::Fixed(Y_AXIS_WIDTH))

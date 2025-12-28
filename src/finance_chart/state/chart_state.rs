@@ -2,7 +2,7 @@ use super::super::core::{SeriesManager, SeriesData, Candle, SeriesId};
 use super::super::interaction::InteractionState;
 use super::super::viewport::Viewport;
 use super::super::realtime::{UpdateResult, RealtimeDataProvider};
-use super::super::indicators::MacdValue;
+use super::super::indicators::macd::MacdValue;
 use std::sync::Arc;
 
 /// Nombre de bougies visibles par défaut à l'initialisation
@@ -40,8 +40,8 @@ impl ChartState {
     ///
     /// Retourne un `Arc` vers le vecteur pré-calculé si le calcul a réussi.
     pub fn compute_and_store_macd(&mut self) -> Option<Arc<Vec<Option<MacdValue>>>> {
-        // Utilise la fonction utilitaire du module macd_data
-        match crate::finance_chart::macd_data::calculate_all_macd_values(self) {
+        // Utilise la fonction utilitaire du module macd
+        match crate::finance_chart::indicators::macd::calculate_all_macd_values(self) {
             Some(values) => {
                 let arc: Arc<Vec<Option<MacdValue>>> = Arc::new(values);
                 self.macd_cache = Some(arc.clone());

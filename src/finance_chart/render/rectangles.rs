@@ -3,7 +3,7 @@
 use iced::widget::canvas::{self, Frame, Path};
 use iced::{Color, Point, Size};
 
-use crate::finance_chart::tools_canvas::{DrawnRectangle, HANDLE_SIZE};
+use crate::finance_chart::tools::{DrawnRectangle, HANDLE_SIZE};
 use crate::finance_chart::viewport::Viewport;
 
 /// Dessine un rectangle avec sa bordure et ses poignées si sélectionné

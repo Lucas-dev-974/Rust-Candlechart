@@ -1,6 +1,7 @@
 //! Canvas pour l'axe Y du MACD
 //! 
 //! Affiche les valeurs du MACD sur l'axe vertical à droite du graphique MACD.
+//! Utilise un snapshot léger pour éviter de cloner le ChartState complet.
 
 use iced::widget::canvas::{Canvas, Frame, Geometry, Program, Text, Path, Stroke};
 use iced::widget::stack;
@@ -8,35 +9,21 @@ use iced::{Color, Element, Length, Point, Rectangle};
 use iced::mouse::Cursor;
 use iced::Pixels;
 
-use super::axis_canvas::Y_AXIS_WIDTH;
-use super::axis_style::AxisStyle;
-use super::state::ChartState;
-use super::indicators::MacdValue;
-use super::macd_data::{calculate_macd_data, calculate_macd_range, get_last_macd_value};
-use super::macd_scaling::MacdScaling;
-use std::sync::Arc;
+use crate::finance_chart::axis::{Y_AXIS_WIDTH, AxisStyle};
+use crate::finance_chart::state::ChartState;
+use super::calc::MacdValue;
+use super::data::{calculate_macd_data, calculate_macd_range, get_last_macd_value, calculate_all_macd_values};
+use super::snapshot::MacdAxisSnapshot;
+use super::scaling::MacdScaling;
 
 /// Program pour l'axe Y du MACD
 pub struct MACDAxisProgram {
-    chart_state: ChartState,
-    /// Valeurs MACD pré-calculées (optionnel, pour éviter les recalculs)
-    precomputed_macd_values: Option<Arc<Vec<Option<MacdValue>>>>,
+    snapshot: MacdAxisSnapshot,
 }
 
 impl MACDAxisProgram {
-    pub fn new(chart_state: ChartState) -> Self {
-        Self { 
-            chart_state,
-            precomputed_macd_values: None,
-        }
-    }
-    
-    /// Crée un nouveau MACDAxisProgram avec des valeurs MACD pré-calculées
-    pub fn with_precomputed_values(chart_state: ChartState, macd_values: Arc<Vec<Option<MacdValue>>>) -> Self {
-        Self {
-            chart_state,
-            precomputed_macd_values: Some(macd_values),
-        }
+    pub fn new(snapshot: MacdAxisSnapshot) -> Self {
+        Self { snapshot }
     }
 }
 
@@ -58,35 +45,13 @@ impl<Message> Program<Message> for MACDAxisProgram {
         let background = Path::rectangle(Point::ORIGIN, bounds.size());
         frame.fill(&background, style.background_color);
 
-        // Utiliser les valeurs pré-calculées si disponibles, sinon les calculer.
-        // Travailler sur des slices pour éviter des clones coûteux.
-        let mut _owned_macd: Option<Vec<Option<MacdValue>>> = None;
-        let all_macd_slice: &[Option<MacdValue>] = if let Some(ref precomputed) = self.precomputed_macd_values {
-            &precomputed[..]
-        } else {
-            let values = match super::macd_data::calculate_all_macd_values(&self.chart_state) {
-                Some(v) => v,
-                None => return vec![frame.into_geometry()],
-            };
-            _owned_macd = Some(values);
-            _owned_macd.as_ref().map(|v| &v[..]).unwrap()
-        };
+        // Vérifier que le snapshot contient des données valides
+        if !self.snapshot.is_valid() {
+            return vec![frame.into_geometry()];
+        }
 
-        // Extraire les valeurs visibles (les références pointent vers all_macd_slice)
-        let (visible_macd_values, _visible_candles_slice, _visible_start_idx) =
-            match calculate_macd_data(&self.chart_state, all_macd_slice) {
-                Some(data) => data,
-                None => return vec![frame.into_geometry()],
-            };
-
-        // Calculer la plage de valeurs MACD pour le scaling
-        let (min_macd, max_macd) = match calculate_macd_range(&visible_macd_values) {
-            Some(range) => range,
-            None => return vec![frame.into_geometry()],
-        };
-
-        // Créer le scaling MACD
-        let scaling = MacdScaling::new(min_macd, max_macd, bounds.height);
+        // Créer le scaling MACD à partir des données pré-calculées
+        let scaling = MacdScaling::new(self.snapshot.min_macd, self.snapshot.max_macd, bounds.height);
 
         // La position Y de zéro est toujours au centre
         let zero_y = scaling.zero_y();
@@ -114,7 +79,6 @@ impl<Message> Program<Message> for MACDAxisProgram {
             
             // Ne dessiner que si visible
             if y >= 0.0 && y <= bounds.height {
-                // Formater le MACD selon la précision nécessaire
                 let label = if macd_step >= 1.0 {
                     format!("{:.0}", macd_value)
                 } else if macd_step >= 0.1 {
@@ -127,7 +91,7 @@ impl<Message> Program<Message> for MACDAxisProgram {
 
                 let text = Text {
                     content: label,
-                    position: Point::new(bounds.width - 5.0 - 15.0, y - 6.0), // Décaler de 15px vers la gauche
+                    position: Point::new(bounds.width - 5.0 - 15.0, y - 6.0),
                     color: style.text_color,
                     size: Pixels(style.text_size),
                     ..Text::default()
@@ -167,13 +131,10 @@ impl<Message> Program<Message> for MACDLabelOverlayProgram {
         let mut frame = Frame::new(renderer, bounds.size());
 
         if let Some(macd) = &self.macd_value {
-            // Pour le MACD, on affiche la valeur MACD line
-            // La position Y sera calculée dynamiquement en fonction de la plage de valeurs
-            // Pour simplifier, on affiche juste le label en haut à gauche
             let text = Text {
                 content: format!("MACD: {:.4}", macd.macd_line),
                 position: Point::new(5.0, 10.0),
-                color: Color::from_rgb(0.0, 0.8, 1.0), // Cyan pour correspondre à la ligne MACD
+                color: Color::from_rgb(0.0, 0.8, 1.0), // Cyan
                 size: Pixels(11.0),
                 ..Text::default()
             };
@@ -186,34 +147,59 @@ impl<Message> Program<Message> for MACDLabelOverlayProgram {
 
 /// Crée un widget canvas pour l'axe Y du MACD avec overlay de la valeur MACD actuelle
 pub fn macd_y_axis<'a>(chart_state: &'a ChartState) -> Element<'a, crate::app::messages::Message> {
-    // Calculer toutes les valeurs MACD une seule fois (réutilisées dans le draw et l'overlay)
-    let all_vec = match super::macd_data::calculate_all_macd_values(chart_state) {
+    // Calculer toutes les valeurs MACD une seule fois
+    let all_macd_values = match calculate_all_macd_values(chart_state) {
         Some(v) => v,
         None => {
-            // Si pas de valeurs MACD, créer un canvas vide
-            return Canvas::new(MACDAxisProgram::new(chart_state.clone()))
+            let empty_snapshot = MacdAxisSnapshot::new(vec![], 0.0, 0.0);
+            return Canvas::new(MACDAxisProgram::new(empty_snapshot))
                 .width(Length::Fixed(Y_AXIS_WIDTH))
                 .height(Length::Fill)
                 .into();
         }
     };
 
-    // Placer les valeurs dans un Arc pour éviter les clones larges
-    let arc = Arc::new(all_vec);
+    // Extraire les valeurs visibles
+    let (visible_macd_slice, _, _) = match calculate_macd_data(chart_state, &all_macd_values) {
+        Some(data) => data,
+        None => {
+            let empty_snapshot = MacdAxisSnapshot::new(vec![], 0.0, 0.0);
+            return Canvas::new(MACDAxisProgram::new(empty_snapshot))
+                .width(Length::Fixed(Y_AXIS_WIDTH))
+                .height(Length::Fill)
+                .into();
+        }
+    };
 
-    // Récupérer la dernière valeur MACD en utilisant les valeurs pré-calculées
-    let current_macd = get_last_macd_value(chart_state, Some(&*arc));
+    // Calculer la plage de valeurs
+    let (min_macd, max_macd) = match calculate_macd_range(visible_macd_slice) {
+        Some(range) => range,
+        None => {
+            let empty_snapshot = MacdAxisSnapshot::new(vec![], 0.0, 0.0);
+            return Canvas::new(MACDAxisProgram::new(empty_snapshot))
+                .width(Length::Fixed(Y_AXIS_WIDTH))
+                .height(Length::Fill)
+                .into();
+        }
+    };
 
-    // Créer l'axe Y avec les valeurs MACD pré-calculées pour éviter le recalcul
-    let axis = Canvas::new(MACDAxisProgram::with_precomputed_values(
-        chart_state.clone(),
-        arc.clone()
-    ))
+    // Récupérer la dernière valeur MACD pour l'overlay
+    let last_macd = get_last_macd_value(chart_state, Some(&all_macd_values));
+
+    // Créer le snapshot léger avec les données pré-calculées
+    let snapshot = MacdAxisSnapshot::new(
+        visible_macd_slice.to_vec(),
+        min_macd,
+        max_macd,
+    );
+
+    // Créer l'axe Y avec le snapshot
+    let axis = Canvas::new(MACDAxisProgram::new(snapshot))
         .width(Length::Fixed(Y_AXIS_WIDTH))
         .height(Length::Fill);
     
     // Créer l'overlay avec le label MACD
-    let overlay = Canvas::new(MACDLabelOverlayProgram::new(current_macd))
+    let overlay = Canvas::new(MACDLabelOverlayProgram::new(last_macd))
         .width(Length::Fixed(Y_AXIS_WIDTH))
         .height(Length::Fill);
     

@@ -3,7 +3,7 @@
 //! Ce module contient les fonctions pour convertir les valeurs MACD en coordonnées Y
 //! et vice versa, en utilisant une plage symétrique autour de zéro.
 
-use super::render::calculate_nice_step;
+use crate::finance_chart::render::calculate_nice_step;
 
 /// Configuration de scaling pour le MACD
 pub struct MacdScaling {
@@ -32,7 +32,7 @@ impl MacdScaling {
         let abs_max = min_macd.abs().max(max_macd.abs());
         let symmetric_min = -abs_max;
         let symmetric_max = abs_max;
-        let macd_range = (symmetric_max - symmetric_min).max(0.0001); // Éviter division par zéro
+        let macd_range = (symmetric_max - symmetric_min).max(0.0001);
 
         Self {
             symmetric_min,
@@ -43,24 +43,12 @@ impl MacdScaling {
     }
 
     /// Convertit une valeur MACD en coordonnée Y
-    ///
-    /// # Arguments
-    /// * `value` - Valeur MACD à convertir
-    ///
-    /// # Retourne
-    /// Coordonnée Y correspondante
     pub fn macd_to_y(&self, value: f64) -> f32 {
         let normalized = (value - self.symmetric_min) / self.macd_range;
         self.height * (1.0 - normalized as f32)
     }
 
     /// Convertit une coordonnée Y en valeur MACD
-    ///
-    /// # Arguments
-    /// * `y` - Coordonnée Y à convertir
-    ///
-    /// # Retourne
-    /// Valeur MACD correspondante
     pub fn y_to_macd(&self, y: f32) -> f64 {
         let normalized = 1.0 - (y / self.height);
         self.symmetric_min + (normalized as f64 * self.macd_range)

@@ -1,18 +1,9 @@
 //! Provider Binance pour la mise à jour en temps réel
 //!
 //! Implémente `RealtimeDataProvider` pour récupérer les données depuis l'API Binance.
-//!
-//! # Exemple d'utilisation
-//!
-//! ```ignore
-//! use candlechart::BinanceProvider;
-//!
-//! let provider = BinanceProvider::new();
-//! let result = chart_state.update_from_provider(&series_id, &provider);
-//! ```
 
-use super::core::{Candle, SeriesId};
-use super::realtime::{RealtimeDataProvider, ProviderError};
+use crate::finance_chart::core::{Candle, SeriesId};
+use crate::finance_chart::realtime::{RealtimeDataProvider, ProviderError};
 use std::time::Duration;
 
 /// URL de base de l'API Binance
@@ -22,64 +13,38 @@ const BINANCE_API_BASE: &str = "https://api.binance.com/api/v3";
 const DEFAULT_TIMEOUT_SECS: u64 = 10;
 
 /// Provider Binance pour récupérer les données depuis l'API Binance
-///
-/// Utilise l'API REST publique de Binance pour récupérer les données de klines (bougies).
-///
-/// # Exemple
-///
-/// ```ignore
-/// let provider = BinanceProvider::new();
-/// let provider = BinanceProvider::with_timeout(Duration::from_secs(5));
-/// ```
 #[derive(Clone)]
 pub struct BinanceProvider {
     /// Client HTTP pour les requêtes
     client: reqwest::Client,
-    /// URL de base de l'API (par défaut: API publique Binance)
+    /// URL de base de l'API
     base_url: String,
     /// Token API optionnel pour l'authentification
-    #[allow(dead_code)] // Stocké pour usage futur (authentification API)
+    #[allow(dead_code)]
     api_token: Option<String>,
 }
 
 impl BinanceProvider {
     /// Crée un nouveau provider Binance avec les paramètres par défaut
-    ///
-    /// Utilise l'API publique de Binance avec un timeout de 10 secondes.
     pub fn new() -> Self {
         Self::with_timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
     }
 
     /// Crée un nouveau provider avec un timeout personnalisé
-    ///
-    /// # Arguments
-    /// * `timeout` - Timeout pour les requêtes HTTP
     pub fn with_timeout(timeout: Duration) -> Self {
         Self::with_config(timeout, None)
     }
 
     /// Crée un nouveau provider avec un token API
-    ///
-    /// # Arguments
-    /// * `api_token` - Token API pour l'authentification (optionnel)
     pub fn with_token(api_token: Option<String>) -> Self {
         Self::with_config(Duration::from_secs(DEFAULT_TIMEOUT_SECS), api_token)
     }
 
     /// Crée un nouveau provider avec une configuration complète
-    ///
-    /// # Arguments
-    /// * `timeout` - Timeout pour les requêtes HTTP
-    /// * `api_token` - Token API pour l'authentification (optionnel)
-    ///
-    /// # Panics
-    /// Cette fonction ne devrait jamais paniquer car reqwest::Client::builder().build()
-    /// ne peut échouer que si TLS ne peut pas être initialisé, ce qui est très rare.
     pub fn with_config(timeout: Duration, api_token: Option<String>) -> Self {
         let mut client_builder = reqwest::Client::builder()
             .timeout(timeout);
 
-        // Ajouter le header X-MBX-APIKEY si un token est fourni
         if let Some(ref token) = api_token {
             if let Ok(header_value) = reqwest::header::HeaderValue::from_str(token) {
                 client_builder = client_builder.default_headers({
@@ -92,12 +57,10 @@ impl BinanceProvider {
             }
         }
 
-        // Le build() ne peut échouer que si TLS ne peut pas être initialisé
-        // Dans ce cas, on utilise un client sans TLS comme fallback
         let client = client_builder
             .build()
             .unwrap_or_else(|e| {
-                eprintln!("⚠️ Erreur création client HTTP avec TLS: {}. Utilisation d'un client basique.", e);
+                eprintln!("⚠️ Erreur création client HTTP: {}. Utilisation d'un client basique.", e);
                 reqwest::Client::new()
             });
 
@@ -108,39 +71,26 @@ impl BinanceProvider {
         }
     }
 
-    /// Récupère la dernière bougie de manière asynchrone (pour Iced Tasks)
-    ///
-    /// Cette méthode permet de faire des requêtes en parallèle sans bloquer le thread principal.
+    /// Récupère la dernière bougie de manière asynchrone
     pub async fn get_latest_candle_async(&self, series_id: &SeriesId) -> Result<Option<Candle>, ProviderError> {
         let (symbol, interval) = self.parse_series_id(series_id)?;
         let candles = self.fetch_klines(&symbol, &interval, None, None, Some(1)).await?;
         Ok(candles.into_iter().last())
     }
 
-    /// Récupère les nouvelles bougies depuis un timestamp de manière asynchrone (pour Iced Tasks)
-    ///
-    /// Cette méthode permet de faire des requêtes en parallèle sans bloquer le thread principal.
+    /// Récupère les nouvelles bougies depuis un timestamp de manière asynchrone
     pub async fn fetch_new_candles_async(&self, series_id: &SeriesId, since_timestamp: i64) -> Result<Vec<Candle>, ProviderError> {
         let (symbol, interval) = self.parse_series_id(series_id)?;
         let start_time_ms = since_timestamp * 1000;
         self.fetch_klines(&symbol, &interval, Some(start_time_ms), None, Some(1000)).await
     }
 
-    /// Récupère toutes les bougies de manière asynchrone (pour Iced Tasks)
-    ///
-    /// Cette méthode permet de faire des requêtes en parallèle sans bloquer le thread principal.
+    /// Récupère toutes les bougies de manière asynchrone
     pub async fn fetch_all_candles_async(&self, series_id: &SeriesId) -> Result<Vec<Candle>, ProviderError> {
         self.fetch_new_candles_async(series_id, 0).await
     }
 
-    /// Récupère les bougies dans une plage temporelle spécifique de manière asynchrone (pour Iced Tasks)
-    ///
-    /// Cette méthode permet de récupérer les bougies manquantes pour combler un gap.
-    ///
-    /// # Arguments
-    /// * `series_id` - Identifiant de la série
-    /// * `start_timestamp` - Timestamp de début (en secondes)
-    /// * `end_timestamp` - Timestamp de fin (en secondes)
+    /// Récupère les bougies dans une plage temporelle spécifique
     pub async fn fetch_candles_in_range_async(
         &self,
         series_id: &SeriesId,
@@ -153,10 +103,7 @@ impl BinanceProvider {
         self.fetch_klines(&symbol, &interval, Some(start_time_ms), Some(end_time_ms), Some(1000)).await
     }
 
-
     /// Extrait le symbole et l'intervalle depuis un SeriesId
-    ///
-    /// Format attendu: "SYMBOL_INTERVAL" (ex: "BTCUSDT_1h")
     fn parse_series_id(&self, series_id: &SeriesId) -> Result<(String, String), ProviderError> {
         let parts: Vec<&str> = series_id.name.split('_').collect();
         if parts.len() < 2 {
@@ -173,9 +120,6 @@ impl BinanceProvider {
     }
 
     /// Convertit une réponse kline Binance en Candle
-    ///
-    /// L'API Binance retourne les klines sous forme de tableaux :
-    /// [open_time (ms), open, high, low, close, volume, close_time, ...]
     fn parse_kline_array(&self, arr: &[serde_json::Value]) -> Result<Candle, ProviderError> {
         if arr.len() < 6 {
             return Err(ProviderError::Parse(format!(
@@ -184,7 +128,6 @@ impl BinanceProvider {
             )));
         }
 
-        // Helper pour parser un prix depuis un Value
         let parse_price = |idx: usize, field: &str| -> Result<f64, ProviderError> {
             arr[idx]
                 .as_str()
@@ -193,7 +136,6 @@ impl BinanceProvider {
                 .map_err(|e| ProviderError::Parse(format!("Erreur parsing {}: {}", field, e)))
         };
 
-        // Extraire les valeurs
         let open_time_ms = arr[0]
             .as_i64()
             .ok_or_else(|| ProviderError::Parse("open_time invalide".to_string()))?;
@@ -201,45 +143,25 @@ impl BinanceProvider {
         let high = parse_price(2, "high")?;
         let low = parse_price(3, "low")?;
         let close = parse_price(4, "close")?;
-
-        // Parser le volume (index 5 dans le tableau Binance)
         let volume = parse_price(5, "volume")?;
 
-        // Convertir timestamp millisecondes → secondes
         let timestamp = open_time_ms / 1000;
 
         Ok(Candle::new(timestamp, open, high, low, close, volume))
     }
 
-    /// Exécute une future async, en utilisant le runtime existant ou en créant un nouveau
-    ///
-    /// Cette fonction gère correctement les appels depuis des contextes sync et async :
-    /// - Si `Handle::try_current()` réussit, on pourrait être dans un contexte sync ou async
-    /// - Comme `Handle::block_on()` panique si appelé depuis un contexte async, on crée
-    ///   toujours un nouveau runtime pour éviter ce risque
-    /// - Cette approche est plus sûre même si légèrement moins efficace
-    #[allow(dead_code)] // Utilisé dans les implémentations de RealtimeDataProvider (fetch_latest_candle, fetch_new_candles)
+    /// Exécute une future async
+    #[allow(dead_code)]
     fn run_async<F, T>(&self, future: F) -> Result<T, ProviderError>
     where
         F: std::future::Future<Output = Result<T, ProviderError>>,
     {
-        // Toujours créer un nouveau runtime pour éviter les panics
-        // Handle::block_on() panique si appelé depuis un contexte async, et il n'y a pas
-        // de moyen fiable de détecter si on est dans un contexte async avant d'appeler block_on.
-        // Créer un nouveau runtime est la solution la plus sûre.
         tokio::runtime::Runtime::new()
             .map_err(|e| ProviderError::Unknown(format!("Erreur création runtime: {}", e)))?
             .block_on(future)
     }
 
     /// Récupère les klines depuis l'API Binance
-    ///
-    /// # Arguments
-    /// * `symbol` - Symbole de la paire (ex: "BTCUSDT")
-    /// * `interval` - Intervalle (ex: "1h", "15m", "1d")
-    /// * `start_time` - Timestamp de début (optionnel, en millisecondes)
-    /// * `end_time` - Timestamp de fin (optionnel, en millisecondes)
-    /// * `limit` - Nombre maximum de klines à récupérer (max: 1000)
     async fn fetch_klines(
         &self,
         symbol: &str,
@@ -248,7 +170,6 @@ impl BinanceProvider {
         end_time: Option<i64>,
         limit: Option<usize>,
     ) -> Result<Vec<Candle>, ProviderError> {
-        // Construire l'URL de manière optimisée
         let mut url = format!("{}/klines?symbol={}&interval={}", self.base_url, symbol, interval);
         
         let mut params = Vec::new();
@@ -267,7 +188,6 @@ impl BinanceProvider {
             url.push_str(&params.join("&"));
         }
 
-        // Faire la requête
         let response = self
             .client
             .get(&url)
@@ -287,20 +207,17 @@ impl BinanceProvider {
             });
         }
 
-        // Parser la réponse JSON
         let json: Vec<Vec<serde_json::Value>> = response
             .json()
             .await
             .map_err(ProviderError::from)?;
 
-        // Convertir en Candles
         let mut candles = Vec::new();
         for kline_arr in json {
             match self.parse_kline_array(&kline_arr) {
                 Ok(candle) => candles.push(candle),
                 Err(e) => {
                     eprintln!("⚠️ Erreur parsing kline: {}", e);
-                    // Continuer avec les autres klines
                 }
             }
         }
@@ -309,13 +226,6 @@ impl BinanceProvider {
     }
 
     /// Teste la connexion à l'API Binance
-    ///
-    /// Effectue une requête simple pour vérifier que le token API est valide et que les appels API fonctionnent.
-    /// Utilise l'endpoint `/api/v3/ping` qui est léger et rapide.
-    ///
-    /// # Retourne
-    /// - `Ok(())` si la connexion fonctionne
-    /// - `Err(ProviderError)` si la connexion échoue
     pub async fn test_connection(&self) -> Result<(), ProviderError> {
         let url = format!("{}/ping", self.base_url);
         
@@ -341,16 +251,8 @@ impl BinanceProvider {
         }
     }
 
-    /// Teste la connexion avec authentification (si un token est configuré)
-    ///
-    /// Utilise l'endpoint `/api/v3/account` qui nécessite une authentification.
-    /// Cela confirme que le token API est valide et fonctionnel.
-    ///
-    /// # Retourne
-    /// - `Ok(())` si le token est valide et que la connexion fonctionne
-    /// - `Err(ProviderError)` si le token est invalide ou si la connexion échoue
+    /// Teste la connexion avec authentification
     pub async fn test_authenticated_connection(&self) -> Result<(), ProviderError> {
-        // Si pas de token, on ne peut pas tester l'authentification
         if self.api_token.is_none() {
             return Err(ProviderError::Api {
                 status: None,
@@ -449,25 +351,24 @@ mod tests {
     fn test_parse_kline_array() {
         let provider = BinanceProvider::new();
         
-        // Format Binance: [open_time_ms, open, high, low, close, volume, ...]
         let kline_json = serde_json::json!([
-            1609459200000i64,  // open_time (ms)
-            "50000.0",          // open
-            "50100.0",          // high
-            "49900.0",          // low
-            "50050.0",          // close
-            "100.5",            // volume
-            1609462800000i64,  // close_time
-            "50000000.0",       // quote_volume
-            1000i64,            // trades
-            "2500000.0",        // taker_buy_base
-            "125000000.0"       // taker_buy_quote
+            1609459200000i64,
+            "50000.0",
+            "50100.0",
+            "49900.0",
+            "50050.0",
+            "100.5",
+            1609462800000i64,
+            "50000000.0",
+            1000i64,
+            "2500000.0",
+            "125000000.0"
         ]);
         
         let arr: Vec<serde_json::Value> = serde_json::from_value(kline_json).unwrap();
         let candle = provider.parse_kline_array(&arr).unwrap();
         
-        assert_eq!(candle.timestamp, 1609459200); // secondes
+        assert_eq!(candle.timestamp, 1609459200);
         assert_eq!(candle.open, 50000.0);
         assert_eq!(candle.high, 50100.0);
         assert_eq!(candle.low, 49900.0);

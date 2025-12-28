@@ -3,9 +3,9 @@
 //! Ce module contient la logique partagée pour calculer le RSI avec toutes les bougies
 //! et extraire les valeurs correspondant aux bougies visibles.
 
-use super::state::ChartState;
-use super::core::Candle;
-use super::indicators::{calculate_rsi, RSI_PERIOD};
+use crate::finance_chart::state::ChartState;
+use crate::finance_chart::core::Candle;
+use super::calc::{calculate_rsi, RSI_PERIOD};
 
 /// Calcule le RSI pour toutes les bougies et retourne les valeurs RSI et les bougies visibles
 ///
@@ -18,10 +18,6 @@ use super::indicators::{calculate_rsi, RSI_PERIOD};
 /// - Les valeurs RSI correspondant aux bougies visibles (références)
 /// - Les bougies visibles
 /// - L'index de début des bougies visibles
-///
-/// # Note
-/// Les références dans le tuple pointent vers `all_rsi_values` qui doit rester en vie
-/// pendant l'utilisation des références.
 pub fn calculate_rsi_data<'a>(
     chart_state: &'a ChartState,
     all_rsi_values: &'a Vec<Option<f64>>,
@@ -97,14 +93,11 @@ pub fn calculate_all_rsi_values(chart_state: &ChartState) -> Option<Vec<Option<f
 /// Récupère la dernière valeur RSI valide
 ///
 /// # Arguments
-/// * `all_rsi_values` - Toutes les valeurs RSI pré-calculées (optionnel)
 /// * `chart_state` - L'état du graphique (utilisé si all_rsi_values est None)
+/// * `all_rsi_values` - Toutes les valeurs RSI pré-calculées (optionnel)
 ///
 /// # Retourne
 /// La dernière valeur RSI valide, ou `None` si aucune n'est disponible
-///
-/// # Note
-/// Si `all_rsi_values` est fourni, cette fonction évite de recalculer toutes les valeurs RSI.
 pub fn get_last_rsi_value(
     chart_state: &ChartState,
     all_rsi_values: Option<&Vec<Option<f64>>>,

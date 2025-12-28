@@ -5,20 +5,21 @@
 use iced::widget::canvas::{Canvas, Frame, Geometry, Program, Path, Stroke};
 use iced::{Color, Element, Length, Point, Rectangle};
 use iced::mouse::Cursor;
-
-use super::state::ChartState;
-use super::render::calculate_candle_period;
-use super::render::render_macd_crosshair;
-use super::render::crosshair::CrosshairStyle;
-use super::macd_data::{calculate_macd_data, calculate_macd_range};
-use super::macd_scaling::MacdScaling;
 use std::sync::Arc;
+
+use crate::finance_chart::state::ChartState;
+use crate::finance_chart::render::{calculate_candle_period, calculate_bar_width};
+use crate::finance_chart::render::render_macd_crosshair;
+use crate::finance_chart::render::crosshair::CrosshairStyle;
+use super::calc::MacdValue;
+use super::data::{calculate_macd_data, calculate_macd_range, calculate_all_macd_values};
+use super::scaling::MacdScaling;
 
 /// Program Iced pour le rendu du MACD
 pub struct MACDProgram<'a> {
     chart_state: &'a ChartState,
     /// Valeurs MACD pré-calculées (optionnel, pour éviter les recalculs)
-    precomputed_macd_values: Option<Arc<Vec<Option<super::indicators::MacdValue>>>>,
+    precomputed_macd_values: Option<Arc<Vec<Option<MacdValue>>>>,
 }
 
 impl<'a> MACDProgram<'a> {
@@ -30,13 +31,10 @@ impl<'a> MACDProgram<'a> {
     }
     
     /// Crée un nouveau MACDProgram avec des valeurs MACD pré-calculées
-    /// 
-    /// Utile pour éviter de recalculer les valeurs MACD si elles ont déjà été calculées
-    /// (par exemple, si elles sont partagées avec macd_y_axis)
-    #[allow(dead_code)] // Utilisé pour optimisation future dans views.rs
+    #[allow(dead_code)] // Utilisé pour optimisation future
     pub fn with_precomputed_values(
         chart_state: &'a ChartState, 
-        macd_values: Arc<Vec<Option<super::indicators::MacdValue>>>
+        macd_values: Arc<Vec<Option<MacdValue>>>
     ) -> Self {
         Self {
             chart_state,
@@ -58,19 +56,18 @@ impl<'a, Message> Program<Message> for MACDProgram<'a> {
     ) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
 
-        // Fond sombre (légèrement différent pour distinguer visuellement)
+        // Fond sombre
         let background = Path::rectangle(Point::ORIGIN, bounds.size());
-        frame.fill(&background, Color::from_rgb(0.08, 0.10, 0.08)); // Légèrement plus vert
+        frame.fill(&background, Color::from_rgb(0.08, 0.10, 0.08));
 
-        // Utiliser les valeurs pré-calculées si disponibles, sinon les calculer.
-        // Nous opérons sur des slices pour éviter les clones coûteux.
-        let mut _owned_macd: Option<Vec<Option<super::indicators::MacdValue>>> = None;
-        let all_macd_slice: &[Option<super::indicators::MacdValue>] = if let Some(ref precomputed) =
+        // Utiliser les valeurs pré-calculées si disponibles, sinon les calculer
+        let mut _owned_macd: Option<Vec<Option<MacdValue>>> = None;
+        let all_macd_slice: &[Option<MacdValue>] = if let Some(ref precomputed) =
             self.precomputed_macd_values
         {
             &precomputed[..]
         } else {
-            let values = match super::macd_data::calculate_all_macd_values(self.chart_state) {
+            let values = match calculate_all_macd_values(self.chart_state) {
                 Some(v) => v,
                 None => return vec![frame.into_geometry()],
             };
@@ -78,7 +75,7 @@ impl<'a, Message> Program<Message> for MACDProgram<'a> {
             _owned_macd.as_ref().map(|v| &v[..]).unwrap()
         };
 
-        // Extraire les valeurs visibles (les références pointent vers all_macd_slice)
+        // Extraire les valeurs visibles
         let (visible_macd_values, visible_candles_slice, _visible_start_idx) =
             match calculate_macd_data(self.chart_state, all_macd_slice) {
                 Some(data) => data,
@@ -87,15 +84,15 @@ impl<'a, Message> Program<Message> for MACDProgram<'a> {
 
         let viewport = &self.chart_state.viewport;
         
-        // Créer un TimeScale temporaire pour le MACD chart qui utilise bounds.width
+        // Créer un TimeScale temporaire pour le MACD chart
         let (min_time, max_time) = viewport.time_scale().time_range();
-        use super::scale::TimeScale;
+        use crate::finance_chart::scale::TimeScale;
         let macd_time_scale = TimeScale::new(min_time, max_time, bounds.width);
 
         let height = bounds.height;
 
         // Calculer la plage de valeurs MACD pour le scaling
-        let (min_macd, max_macd) = match calculate_macd_range(&visible_macd_values) {
+        let (min_macd, max_macd) = match calculate_macd_range(visible_macd_values) {
             Some(range) => range,
             None => return vec![frame.into_geometry()],
         };
@@ -108,7 +105,7 @@ impl<'a, Message> Program<Message> for MACDProgram<'a> {
         let macd_step = scaling.calculate_step();
         let first_macd = scaling.first_level();
         
-        // Dessiner les lignes de référence horizontales pour correspondre aux labels Y
+        // Dessiner les lignes de référence horizontales
         let mut macd_value = first_macd;
         while macd_value <= scaling.symmetric_max {
             let y = scaling.macd_to_y(macd_value);
@@ -119,7 +116,6 @@ impl<'a, Message> Program<Message> for MACDProgram<'a> {
                     builder.line_to(Point::new(bounds.width, y));
                 });
                 
-                // La ligne zéro est plus visible que les autres
                 let line_color = if macd_value == 0.0 {
                     Color::from_rgba(0.5, 0.5, 0.5, 0.5)
                 } else {
@@ -219,7 +215,7 @@ impl<'a, Message> Program<Message> for MACDProgram<'a> {
                         zero_y
                     };
                     
-                    // Comparer avec la valeur précédente de l'histogramme pour déterminer la luminosité
+                    // Comparer avec la valeur précédente de l'histogramme
                     let is_histogram_decreasing = if i > 0 {
                         if let Some(prev_macd) = visible_macd_values.get(i - 1).and_then(|opt| opt.as_ref()) {
                             macd.histogram.abs() < prev_macd.histogram.abs()
@@ -227,28 +223,26 @@ impl<'a, Message> Program<Message> for MACDProgram<'a> {
                             false
                         }
                     } else {
-                        false // Première valeur : pas de comparaison, utiliser couleur normale
+                        false
                     };
                     
-                    // Couleur de l'histogramme : verte si positif, rouge si négatif
-                    // Plus claire si la valeur absolue de l'histogramme est inférieure à la précédente
                     let bar_color = if macd.histogram >= 0.0 {
                         if is_histogram_decreasing {
-                            Color::from_rgba(0.3, 1.0, 0.3, 0.4) // Vert plus clair avec moins d'opacité
+                            Color::from_rgba(0.3, 1.0, 0.3, 0.4)
                         } else {
-                            Color::from_rgba(0.0, 0.8, 0.0, 0.6) // Vert normal
+                            Color::from_rgba(0.0, 0.8, 0.0, 0.6)
                         }
                     } else {
                         if is_histogram_decreasing {
-                            Color::from_rgba(1.0, 0.3, 0.3, 0.4) // Rouge plus clair avec moins d'opacité
+                            Color::from_rgba(1.0, 0.3, 0.3, 0.4)
                         } else {
-                            Color::from_rgba(0.8, 0.0, 0.0, 0.6) // Rouge normal
+                            Color::from_rgba(0.8, 0.0, 0.0, 0.6)
                         }
                     };
                     
                     // Calculer la largeur des barres
                     let candle_period = calculate_candle_period(visible_candles_slice);
-                    let bar_width = super::render::calculate_bar_width(
+                    let bar_width = calculate_bar_width(
                         candle_period,
                         max_time - min_time,
                         bounds.width,

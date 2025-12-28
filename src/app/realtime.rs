@@ -2,6 +2,9 @@
 //!
 //! Ce module gère toutes les opérations asynchrones liées à la mise à jour
 //! en temps réel des données et à la complétion des gaps.
+//!
+//! La logique pure (fonctions sans effets de bord) est extraite dans
+//! le module `realtime_utils` pour faciliter les tests.
 
 use iced::Task;
 use std::collections::HashSet;
@@ -12,22 +15,10 @@ use crate::finance_chart::{
 };
 use crate::app::{
     messages::Message,
-    utils::{interval_to_seconds, calculate_candles_back_timestamp},
+    utils::interval_to_seconds,
     app_state::ChartApp,
+    realtime_utils::{is_binance_format, extract_interval, compute_fetch_since},
 };
-
-/// Vérifie si le nom de série est au format Binance (SYMBOL_INTERVAL)
-#[inline]
-fn is_binance_format(series_name: &str) -> bool {
-    // Validation optimisée : vérifie directement sans allocation
-    if let Some(underscore_pos) = series_name.find('_') {
-        underscore_pos > 0 
-            && underscore_pos < series_name.len() - 1
-            && series_name[underscore_pos + 1..].find('_').is_none()
-    } else {
-        false
-    }
-}
 
 /// Complète les données manquantes pour toutes les séries
 pub fn complete_missing_data(app: &mut ChartApp) -> Task<Message> {
@@ -82,21 +73,14 @@ pub fn complete_missing_data(app: &mut ChartApp) -> Task<Message> {
                     async move {
                         let result = if let Some(last_timestamp) = last_ts {
                             // Extraire l'intervalle depuis le nom de la série (format: SYMBOL_INTERVAL)
-                            let interval = series_name_clone.split('_').last().unwrap_or("1h");
+                            let interval = extract_interval(&series_name_clone);
                             
-                            // Calculer le seuil pour déterminer si les données sont récentes (2 intervalles)
-                            let threshold_seconds = calculate_candles_back_timestamp(interval, 2);
+                            // Utiliser la fonction pure pour déterminer depuis quand récupérer
+                            let (since_ts, is_stale) = compute_fetch_since(last_timestamp, now, interval);
                             
-                            // Si les données sont récentes (moins de 2 intervalles), on complète
-                            // Sinon, on récupère depuis le dernier timestamp
-                            let since_ts = if now - last_timestamp < threshold_seconds {
-                                last_timestamp
-                            } else {
-                                // Si les données sont anciennes, on récupère les 100 dernières bougies
+                            if is_stale {
                                 println!("  ℹ️  {}: Données anciennes, récupération des 100 dernières bougies", series_name_clone);
-                                // Calculer dynamiquement selon l'intervalle
-                                now - calculate_candles_back_timestamp(interval, 100)
-                            };
+                            }
                             
                             println!("  📥 {}: Récupération depuis le timestamp {}", series_name_clone, since_ts);
                             provider.fetch_new_candles_async(&series_id_clone, since_ts)
@@ -179,7 +163,7 @@ pub fn complete_gaps(app: &mut ChartApp) -> Task<Message> {
         }
         
         // Extraire l'intervalle depuis le nom de la série
-        let interval_str = series_name.split('_').last().unwrap_or("1h");
+        let interval_str = extract_interval(&series_name);
         let interval_seconds = interval_to_seconds(interval_str);
         
         // Détecter les gaps

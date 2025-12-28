@@ -12,7 +12,6 @@ pub enum ProviderType {
     // Ajouter d'autres providers ici à l'avenir
     // Coinbase,
     // Kraken,
-    // etc.
 }
 
 impl ProviderType {
@@ -41,9 +40,9 @@ impl ProviderType {
 pub struct ProviderConfig {
     /// Type de provider
     pub provider_type: ProviderType,
-    /// Token API (optionnel, certains providers n'en ont pas besoin)
+    /// Token API (optionnel)
     pub api_token: Option<String>,
-    /// Clé secrète API (optionnel, pour certains providers)
+    /// Clé secrète API (optionnel)
     pub api_secret: Option<String>,
 }
 
@@ -56,7 +55,7 @@ impl ProviderConfig {
         }
     }
 
-    #[allow(dead_code)] // API publique pour création de configurations
+    #[allow(dead_code)]
     pub fn with_token(provider_type: ProviderType, api_token: String) -> Self {
         Self {
             provider_type,
@@ -82,7 +81,6 @@ impl Default for ProviderConfigManager {
             providers: HashMap::new(),
         };
 
-        // Initialiser avec les providers par défaut
         for provider_type in ProviderType::all() {
             manager.providers.insert(
                 provider_type,
@@ -120,7 +118,7 @@ impl ProviderConfigManager {
     }
 
     /// Met à jour la configuration d'un provider
-    #[allow(dead_code)] // API publique pour gestion avancée des configurations
+    #[allow(dead_code)]
     pub fn update_provider_config(&mut self, provider_type: ProviderType, config: ProviderConfig) {
         self.providers.insert(provider_type, config);
     }
@@ -134,7 +132,7 @@ impl ProviderConfigManager {
     }
 
     /// Met à jour la clé secrète API d'un provider
-    #[allow(dead_code)] // API publique pour gestion avancée des configurations
+    #[allow(dead_code)]
     pub fn set_provider_secret(&mut self, provider_type: ProviderType, secret: Option<String>) {
         let config = self.providers.entry(provider_type).or_insert_with(|| {
             ProviderConfig::new(provider_type)
@@ -148,7 +146,7 @@ impl ProviderConfigManager {
     }
 
     /// Retourne tous les providers disponibles
-    #[allow(dead_code)] // API publique pour listing des providers
+    #[allow(dead_code)]
     pub fn available_providers(&self) -> Vec<ProviderType> {
         ProviderType::all()
     }

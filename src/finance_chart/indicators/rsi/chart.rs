@@ -6,11 +6,11 @@ use iced::widget::canvas::{Canvas, Frame, Geometry, Program, Path, Stroke};
 use iced::{Color, Element, Length, Point, Rectangle};
 use iced::mouse::Cursor;
 
-use super::state::ChartState;
-use super::render::render_rsi_crosshair;
-use super::render::crosshair::CrosshairStyle;
-use super::indicators::{RSI_OVERBOUGHT, RSI_OVERSOLD};
-use super::rsi_data::{calculate_all_rsi_values, calculate_rsi_data};
+use crate::finance_chart::state::ChartState;
+use crate::finance_chart::render::render_rsi_crosshair;
+use crate::finance_chart::render::crosshair::CrosshairStyle;
+use super::calc::{RSI_OVERBOUGHT, RSI_OVERSOLD};
+use super::data::{calculate_all_rsi_values, calculate_rsi_data};
 
 /// Program Iced pour le rendu du RSI
 pub struct RSIProgram<'a> {
@@ -60,10 +60,8 @@ impl<'a, Message> Program<Message> for RSIProgram<'a> {
         let viewport = &self.chart_state.viewport;
         
         // Créer un TimeScale temporaire pour le RSI chart qui utilise bounds.width
-        // Cela garantit que les positions X sont calculées correctement pour ce canvas
-        // et que le RSI chart a son propre canvas indépendant
         let (min_time, max_time) = viewport.time_scale().time_range();
-        use super::scale::TimeScale;
+        use crate::finance_chart::scale::TimeScale;
         let rsi_time_scale = TimeScale::new(min_time, max_time, bounds.width);
 
         let height = bounds.height;
@@ -73,7 +71,6 @@ impl<'a, Message> Program<Message> for RSIProgram<'a> {
         let overbought_path = Path::new(|builder| {
             let x1 = 0.0;
             let x2 = bounds.width;
-            // RSI 70 = 30% depuis le haut, RSI 100 = haut (y = 0)
             let y1 = height * (1.0 - RSI_OVERBOUGHT / 100.0) as f32;
             let y2 = 0.0;
             
@@ -89,7 +86,6 @@ impl<'a, Message> Program<Message> for RSIProgram<'a> {
         let oversold_path = Path::new(|builder| {
             let x1 = 0.0;
             let x2 = bounds.width;
-            // RSI 0 = bas (y = height), RSI 30 = 70% depuis le haut
             let y1 = height;
             let y2 = height * (1.0 - RSI_OVERSOLD / 100.0) as f32;
             
@@ -126,15 +122,10 @@ impl<'a, Message> Program<Message> for RSIProgram<'a> {
                 }
                 
                 if let Some(rsi) = rsi_opt {
-                    // Utiliser le rsi_time_scale qui utilise bounds.width pour calculer les positions X
-                    // Cela garantit que le RSI chart a son propre canvas indépendant
                     let x = rsi_time_scale.time_to_x(visible_candles_slice[i].timestamp);
-                    // Mapper le RSI (0-100) sur la hauteur du canvas
-                    // RSI 100 = haut (y = 0), RSI 0 = bas (y = height)
                     let normalized_rsi = (*rsi / 100.0).clamp(0.0, 1.0);
                     let y = height * (1.0 - normalized_rsi as f32);
                     
-                    // Clipper les valeurs hors écran
                     if x >= -10.0 && x <= bounds.width + 10.0 {
                         if first_point {
                             builder.move_to(Point::new(x, y));
