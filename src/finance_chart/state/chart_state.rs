@@ -2,6 +2,8 @@ use super::super::core::{SeriesManager, SeriesData, Candle, SeriesId};
 use super::super::interaction::InteractionState;
 use super::super::viewport::Viewport;
 use super::super::realtime::{UpdateResult, RealtimeDataProvider};
+use super::super::indicators::MacdValue;
+use std::sync::Arc;
 
 /// Nombre de bougies visibles par défaut à l'initialisation
 const DEFAULT_VISIBLE_CANDLES: usize = 150;
@@ -17,6 +19,8 @@ pub struct ChartState {
     pub viewport: Viewport,
     /// État des interactions
     pub interaction: InteractionState,
+    /// Cache optionnel des valeurs MACD pré-calculées pour la série active
+    pub macd_cache: Option<Arc<Vec<Option<MacdValue>>>>,
 }
 
 impl ChartState {
@@ -28,6 +32,22 @@ impl ChartState {
             series_manager: SeriesManager::new(),
             viewport,
             interaction: InteractionState::default(),
+            macd_cache: None,
+        }
+    }
+
+    /// Calcule et stocke le cache MACD pour la série active.
+    ///
+    /// Retourne un `Arc` vers le vecteur pré-calculé si le calcul a réussi.
+    pub fn compute_and_store_macd(&mut self) -> Option<Arc<Vec<Option<MacdValue>>>> {
+        // Utilise la fonction utilitaire du module macd_data
+        match crate::finance_chart::macd_data::calculate_all_macd_values(self) {
+            Some(values) => {
+                let arc: Arc<Vec<Option<MacdValue>>> = Arc::new(values);
+                self.macd_cache = Some(arc.clone());
+                Some(arc)
+            }
+            None => None,
         }
     }
 
@@ -36,6 +56,8 @@ impl ChartState {
         self.series_manager.add_series(series);
         // Mettre à jour le viewport avec la plage globale après ajout
         self.update_viewport_from_series();
+        // Invalider le cache MACD lorsque les données changent
+        self.macd_cache = None;
     }
 
     /// Met à jour le viewport en fonction des séries actives
@@ -141,8 +163,15 @@ impl ChartState {
     /// Le résultat de la mise à jour
     pub fn update_candle(&mut self, series_id: &SeriesId, candle: Candle) -> UpdateResult {
         match self.series_manager.update_series_candle(series_id, candle) {
-            Some(Ok(true)) => UpdateResult::CandleUpdated,
-            Some(Ok(false)) => UpdateResult::NewCandle,
+            Some(Ok(true)) => {
+                // Invalider le cache MACD car les données ont changé
+                self.macd_cache = None;
+                UpdateResult::CandleUpdated
+            }
+            Some(Ok(false)) => {
+                self.macd_cache = None;
+                UpdateResult::NewCandle
+            }
             Some(Err(e)) => UpdateResult::Error(format!("Bougie invalide: {}", e)),
             None => UpdateResult::Error(format!("Série {} introuvable", series_id.name)),
         }
@@ -161,7 +190,11 @@ impl ChartState {
     /// Le résultat de la fusion avec le nombre de nouvelles bougies ajoutées
     pub fn merge_candles(&mut self, series_id: &SeriesId, candles: Vec<Candle>) -> UpdateResult {
         match self.series_manager.merge_series_candles(series_id, candles) {
-            Some(added) => UpdateResult::MultipleCandlesAdded(added),
+            Some(added) => {
+                // Invalider le cache MACD car les données ont été modifiées
+                self.macd_cache = None;
+                UpdateResult::MultipleCandlesAdded(added)
+            }
             None => UpdateResult::Error(format!("Série {} introuvable", series_id.name)),
         }
     }
@@ -220,7 +253,9 @@ impl ChartState {
                 if candles.is_empty() {
                     UpdateResult::NoUpdate
                 } else {
-                    self.merge_candles(series_id, candles)
+                    let res = self.merge_candles(series_id, candles);
+                    // merge_candles already invalidates the MACD cache
+                    res
                 }
             }
             Err(e) => UpdateResult::Error(e),
@@ -250,7 +285,9 @@ impl ChartState {
                 if candles.is_empty() {
                     UpdateResult::NoUpdate
                 } else {
-                    self.merge_candles(series_id, candles)
+                    let res = self.merge_candles(series_id, candles);
+                    // merge_candles already invalidates the MACD cache
+                    res
                 }
             }
             Err(e) => UpdateResult::Error(e),

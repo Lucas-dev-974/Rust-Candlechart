@@ -12,12 +12,13 @@ use super::render::render_macd_crosshair;
 use super::render::crosshair::CrosshairStyle;
 use super::macd_data::{calculate_macd_data, calculate_macd_range};
 use super::macd_scaling::MacdScaling;
+use std::sync::Arc;
 
 /// Program Iced pour le rendu du MACD
 pub struct MACDProgram<'a> {
     chart_state: &'a ChartState,
     /// Valeurs MACD pré-calculées (optionnel, pour éviter les recalculs)
-    precomputed_macd_values: Option<Vec<Option<super::indicators::MacdValue>>>,
+    precomputed_macd_values: Option<Arc<Vec<Option<super::indicators::MacdValue>>>>,
 }
 
 impl<'a> MACDProgram<'a> {
@@ -35,7 +36,7 @@ impl<'a> MACDProgram<'a> {
     #[allow(dead_code)] // Utilisé pour optimisation future dans views.rs
     pub fn with_precomputed_values(
         chart_state: &'a ChartState, 
-        macd_values: Vec<Option<super::indicators::MacdValue>>
+        macd_values: Arc<Vec<Option<super::indicators::MacdValue>>>
     ) -> Self {
         Self {
             chart_state,
@@ -61,19 +62,25 @@ impl<'a, Message> Program<Message> for MACDProgram<'a> {
         let background = Path::rectangle(Point::ORIGIN, bounds.size());
         frame.fill(&background, Color::from_rgb(0.08, 0.10, 0.08)); // Légèrement plus vert
 
-        // Utiliser les valeurs pré-calculées si disponibles, sinon les calculer
-        let all_macd_values = if let Some(ref precomputed) = self.precomputed_macd_values {
-            precomputed.clone()
+        // Utiliser les valeurs pré-calculées si disponibles, sinon les calculer.
+        // Nous opérons sur des slices pour éviter les clones coûteux.
+        let mut _owned_macd: Option<Vec<Option<super::indicators::MacdValue>>> = None;
+        let all_macd_slice: &[Option<super::indicators::MacdValue>] = if let Some(ref precomputed) =
+            self.precomputed_macd_values
+        {
+            &precomputed[..]
         } else {
-            match super::macd_data::calculate_all_macd_values(self.chart_state) {
-                Some(values) => values,
+            let values = match super::macd_data::calculate_all_macd_values(self.chart_state) {
+                Some(v) => v,
                 None => return vec![frame.into_geometry()],
-            }
+            };
+            _owned_macd = Some(values);
+            _owned_macd.as_ref().map(|v| &v[..]).unwrap()
         };
-        
-        // Extraire les valeurs visibles (les références pointent vers all_macd_values)
+
+        // Extraire les valeurs visibles (les références pointent vers all_macd_slice)
         let (visible_macd_values, visible_candles_slice, _visible_start_idx) =
-            match calculate_macd_data(self.chart_state, &all_macd_values) {
+            match calculate_macd_data(self.chart_state, all_macd_slice) {
                 Some(data) => data,
                 None => return vec![frame.into_geometry()],
             };

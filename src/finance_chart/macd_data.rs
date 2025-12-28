@@ -24,12 +24,8 @@ use super::indicators::{calculate_macd, MacdValue, MACD_FAST_PERIOD, MACD_SLOW_P
 /// pendant l'utilisation des références.
 pub fn calculate_macd_data<'a>(
     chart_state: &'a ChartState,
-    all_macd_values: &'a Vec<Option<MacdValue>>,
-) -> Option<(
-    Vec<&'a Option<MacdValue>>,
-    &'a [Candle],
-    usize,
-)> {
+    all_macd_values: &'a [Option<MacdValue>],
+) -> Option<(&'a [Option<MacdValue>], &'a [Candle], usize)> {
     if all_macd_values.is_empty() {
         return None;
     }
@@ -54,18 +50,11 @@ pub fn calculate_macd_data<'a>(
         0
     };
 
-    // Extraire uniquement les valeurs MACD correspondant aux bougies visibles
-    let visible_macd_values: Vec<_> = all_macd_values
-        .iter()
-        .skip(visible_start_idx)
-        .take(visible_candles_slice.len())
-        .collect();
+    // Limiter la tranche pour éviter un out-of-bounds si les vecteurs diffèrent
+    let end = (visible_start_idx + visible_candles_slice.len()).min(all_macd_values.len());
+    let slice = &all_macd_values[visible_start_idx..end];
 
-    Some((
-        visible_macd_values,
-        visible_candles_slice,
-        visible_start_idx,
-    ))
+    Some((slice, visible_candles_slice, visible_start_idx))
 }
 
 /// Calcule toutes les valeurs MACD pour toutes les bougies
@@ -103,8 +92,8 @@ pub fn calculate_all_macd_values(chart_state: &ChartState) -> Option<Vec<Option<
 ///
 /// # Retourne
 /// `Some((min, max))` si des valeurs valides existent, `None` sinon
-pub fn calculate_macd_range<'a>(
-    visible_macd_values: &[&'a Option<MacdValue>],
+pub fn calculate_macd_range(
+    visible_macd_values: &[Option<MacdValue>],
 ) -> Option<(f64, f64)> {
     let (min, max) = visible_macd_values
         .iter()

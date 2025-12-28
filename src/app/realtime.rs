@@ -157,7 +157,9 @@ pub fn apply_complete_missing_data_results(app: &mut ChartApp, results: Vec<(Ser
         println!("🔍 Vérification des gaps dans les données...");
         return complete_gaps(app);
     }
-    
+    // Si aucune mise à jour, on peut calculer et stocker le MACD pour la série active
+    let _ = app.chart_state.compute_and_store_macd();
+
     println!("✅ Complétion terminée");
     Task::none()
 }
@@ -265,12 +267,18 @@ pub fn apply_complete_gaps_results(app: &mut ChartApp, results: Vec<(SeriesId, S
     
     // Lancer la sauvegarde de manière asynchrone pour ne pas bloquer l'UI
     if !updated_series.is_empty() {
+        // Après les merges, recalculer et stocker le MACD avant d'éventuellement sauvegarder
+        let _ = app.chart_state.compute_and_store_macd();
         return save_series_async(app, updated_series);
     }
     
     // Ajuster le viewport une seule fois à la fin (si auto-scroll activé)
     if has_updates && app.chart_style.auto_scroll_enabled {
         app.chart_state.auto_scroll_to_latest();
+    }
+    // Si des mises à jour ont eu lieu, stocker le cache MACD pour réutilisation
+    if has_updates {
+        let _ = app.chart_state.compute_and_store_macd();
     }
     println!("✅ Complétion des gaps terminée");
     Task::none()
@@ -472,6 +480,8 @@ pub fn apply_realtime_updates(app: &mut ChartApp, results: Vec<(SeriesId, String
     // les changements d'état, mais cette variable reste disponible pour un usage futur.
     if has_updates {
         app.render_version = app.render_version.wrapping_add(1);
+        // Mettre à jour le cache MACD centralisé après les mises à jour temps réel
+        let _ = app.chart_state.compute_and_store_macd();
     }
 }
 

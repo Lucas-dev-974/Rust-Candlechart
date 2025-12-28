@@ -14,12 +14,13 @@ use super::state::ChartState;
 use super::indicators::MacdValue;
 use super::macd_data::{calculate_macd_data, calculate_macd_range, get_last_macd_value};
 use super::macd_scaling::MacdScaling;
+use std::sync::Arc;
 
 /// Program pour l'axe Y du MACD
 pub struct MACDAxisProgram {
     chart_state: ChartState,
     /// Valeurs MACD pré-calculées (optionnel, pour éviter les recalculs)
-    precomputed_macd_values: Option<Vec<Option<MacdValue>>>,
+    precomputed_macd_values: Option<Arc<Vec<Option<MacdValue>>>>,
 }
 
 impl MACDAxisProgram {
@@ -31,7 +32,7 @@ impl MACDAxisProgram {
     }
     
     /// Crée un nouveau MACDAxisProgram avec des valeurs MACD pré-calculées
-    pub fn with_precomputed_values(chart_state: ChartState, macd_values: Vec<Option<MacdValue>>) -> Self {
+    pub fn with_precomputed_values(chart_state: ChartState, macd_values: Arc<Vec<Option<MacdValue>>>) -> Self {
         Self {
             chart_state,
             precomputed_macd_values: Some(macd_values),
@@ -57,19 +58,23 @@ impl<Message> Program<Message> for MACDAxisProgram {
         let background = Path::rectangle(Point::ORIGIN, bounds.size());
         frame.fill(&background, style.background_color);
 
-        // Utiliser les valeurs pré-calculées si disponibles, sinon les calculer
-        let all_macd_values = if let Some(ref precomputed) = self.precomputed_macd_values {
-            precomputed.clone()
+        // Utiliser les valeurs pré-calculées si disponibles, sinon les calculer.
+        // Travailler sur des slices pour éviter des clones coûteux.
+        let mut _owned_macd: Option<Vec<Option<MacdValue>>> = None;
+        let all_macd_slice: &[Option<MacdValue>] = if let Some(ref precomputed) = self.precomputed_macd_values {
+            &precomputed[..]
         } else {
-            match super::macd_data::calculate_all_macd_values(&self.chart_state) {
-                Some(values) => values,
+            let values = match super::macd_data::calculate_all_macd_values(&self.chart_state) {
+                Some(v) => v,
                 None => return vec![frame.into_geometry()],
-            }
+            };
+            _owned_macd = Some(values);
+            _owned_macd.as_ref().map(|v| &v[..]).unwrap()
         };
-        
-        // Extraire les valeurs visibles (les références pointent vers all_macd_values)
+
+        // Extraire les valeurs visibles (les références pointent vers all_macd_slice)
         let (visible_macd_values, _visible_candles_slice, _visible_start_idx) =
-            match calculate_macd_data(&self.chart_state, &all_macd_values) {
+            match calculate_macd_data(&self.chart_state, all_macd_slice) {
                 Some(data) => data,
                 None => return vec![frame.into_geometry()],
             };
@@ -182,8 +187,8 @@ impl<Message> Program<Message> for MACDLabelOverlayProgram {
 /// Crée un widget canvas pour l'axe Y du MACD avec overlay de la valeur MACD actuelle
 pub fn macd_y_axis<'a>(chart_state: &'a ChartState) -> Element<'a, crate::app::messages::Message> {
     // Calculer toutes les valeurs MACD une seule fois (réutilisées dans le draw et l'overlay)
-    let all_macd_values = match super::macd_data::calculate_all_macd_values(chart_state) {
-        Some(values) => values,
+    let all_vec = match super::macd_data::calculate_all_macd_values(chart_state) {
+        Some(v) => v,
         None => {
             // Si pas de valeurs MACD, créer un canvas vide
             return Canvas::new(MACDAxisProgram::new(chart_state.clone()))
@@ -192,14 +197,17 @@ pub fn macd_y_axis<'a>(chart_state: &'a ChartState) -> Element<'a, crate::app::m
                 .into();
         }
     };
-    
+
+    // Placer les valeurs dans un Arc pour éviter les clones larges
+    let arc = Arc::new(all_vec);
+
     // Récupérer la dernière valeur MACD en utilisant les valeurs pré-calculées
-    let current_macd = get_last_macd_value(chart_state, Some(&all_macd_values));
-    
+    let current_macd = get_last_macd_value(chart_state, Some(&*arc));
+
     // Créer l'axe Y avec les valeurs MACD pré-calculées pour éviter le recalcul
     let axis = Canvas::new(MACDAxisProgram::with_precomputed_values(
         chart_state.clone(),
-        all_macd_values.clone()
+        arc.clone()
     ))
         .width(Length::Fixed(Y_AXIS_WIDTH))
         .height(Length::Fill);

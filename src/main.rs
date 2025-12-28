@@ -95,6 +95,8 @@ impl ChartApp {
                             );
                             self.chart_state.add_series(series);
                         }
+                        // Calculer et stocker le MACD pré-calculé une fois après le chargement initial
+                        let _ = self.chart_state.compute_and_store_macd();
                         if self.chart_state.series_manager.total_count() == 0 {
                             eprintln!("⚠️ Aucune série chargée. Vérifiez que le dossier 'data' contient des fichiers JSON.");
                             return Task::none();
