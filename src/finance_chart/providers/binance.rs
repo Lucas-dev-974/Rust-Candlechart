@@ -85,22 +85,143 @@ impl BinanceProvider {
         self.fetch_klines(&symbol, &interval, Some(start_time_ms), None, Some(1000)).await
     }
 
-    /// Récupère toutes les bougies de manière asynchrone
+    /// Récupère toutes les bougies de manière asynchrone (limité à 1000)
     pub async fn fetch_all_candles_async(&self, series_id: &SeriesId) -> Result<Vec<Candle>, ProviderError> {
         self.fetch_new_candles_async(series_id, 0).await
     }
 
-    /// Récupère les bougies dans une plage temporelle spécifique
-    pub async fn fetch_candles_in_range_async(
+    /// Récupère tout l'historique disponible avec pagination
+    /// Fait plusieurs requêtes pour récupérer toutes les bougies disponibles
+    /// Les bougies sont retournées triées par timestamp croissant (les plus anciennes en premier)
+    pub async fn fetch_full_history_async(&self, series_id: &SeriesId) -> Result<Vec<Candle>, ProviderError> {
+        let (symbol, interval) = self.parse_series_id(series_id)?;
+        
+        let mut all_candles = Vec::new();
+        let mut end_time: Option<i64> = None;
+        const BATCH_SIZE: usize = 1000; // Limite maximale de Binance
+        
+        println!("📥 Téléchargement de l'historique complet pour {}...", series_id.name);
+        
+        loop {
+            let candles = if let Some(end) = end_time {
+                // Télécharger les bougies avant le timestamp end_time (plus anciennes)
+                self.fetch_klines(&symbol, &interval, None, Some(end * 1000), Some(BATCH_SIZE)).await?
+            } else {
+                // Première requête : récupérer les bougies les plus récentes
+                self.fetch_klines(&symbol, &interval, None, None, Some(BATCH_SIZE)).await?
+            };
+            
+            if candles.is_empty() {
+                break;
+            }
+            
+            let candles_count = candles.len();
+            
+            // Les bougies de Binance sont triées par timestamp croissant
+            // On les ajoute au début de all_candles pour garder l'ordre chronologique
+            all_candles.splice(0..0, candles);
+            
+            // Si on a récupéré moins de BATCH_SIZE bougies, on a tout récupéré
+            if candles_count < BATCH_SIZE {
+                break;
+            }
+            
+            // Le timestamp de la première bougie (la plus ancienne) devient le nouveau end_time
+            if let Some(first_candle) = all_candles.first() {
+                end_time = Some(first_candle.timestamp - 1);
+            } else {
+                break;
+            }
+            
+            println!("  📊 {} bougies téléchargées...", all_candles.len());
+            
+            // Petite pause pour éviter de surcharger l'API
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        }
+        
+        println!("✅ Historique complet téléchargé: {} bougies", all_candles.len());
+        Ok(all_candles)
+    }
+
+    /// Récupère les bougies du plus récent vers le plus ancien (limité à 1000)
+    /// Retourne les 1000 bougies les plus récentes AVANT end_timestamp
+    /// Le filtrage par start_timestamp doit être fait côté appelant
+    pub async fn fetch_candles_backwards_async(
+        &self,
+        series_id: &SeriesId,
+        _start_timestamp: i64,  // Non utilisé ici - filtrage fait côté appelant
+        end_timestamp: i64,     // timestamp maximum - on récupère les 1000 bougies AVANT cette date
+    ) -> Result<Vec<Candle>, ProviderError> {
+        let (symbol, interval) = self.parse_series_id(series_id)?;
+        let end_time_ms = end_timestamp * 1000;
+        
+        // Récupérer les 1000 bougies les plus récentes AVANT end_timestamp
+        // L'API retourne les bougies triées par timestamp croissant (du plus ancien au plus récent)
+        self.fetch_klines(&symbol, &interval, None, Some(end_time_ms), Some(1000)).await
+    }
+
+    /// Récupère TOUTES les bougies dans une plage temporelle avec pagination
+    /// Fait plusieurs requêtes si nécessaire pour combler tout le gap
+    pub async fn fetch_all_candles_in_range_async(
         &self,
         series_id: &SeriesId,
         start_timestamp: i64,
         end_timestamp: i64,
     ) -> Result<Vec<Candle>, ProviderError> {
         let (symbol, interval) = self.parse_series_id(series_id)?;
-        let start_time_ms = start_timestamp * 1000;
-        let end_time_ms = end_timestamp * 1000;
-        self.fetch_klines(&symbol, &interval, Some(start_time_ms), Some(end_time_ms), Some(1000)).await
+        
+        let mut all_candles = Vec::new();
+        let mut current_start = start_timestamp;
+        const BATCH_SIZE: usize = 1000;
+        
+        println!("📥 Téléchargement des données de {} à {} pour {}...", start_timestamp, end_timestamp, series_id.name);
+        
+        loop {
+            let start_time_ms = current_start * 1000;
+            let end_time_ms = end_timestamp * 1000;
+            
+            let candles = self.fetch_klines(&symbol, &interval, Some(start_time_ms), Some(end_time_ms), Some(BATCH_SIZE)).await?;
+            
+            if candles.is_empty() {
+                break;
+            }
+            
+            let candles_count = candles.len();
+            
+            // Trouver le timestamp le plus récent pour la prochaine requête
+            if let Some(last_candle) = candles.last() {
+                current_start = last_candle.timestamp + 1; // +1 pour éviter les doublons
+            }
+            
+            all_candles.extend(candles);
+            
+            // Si on a atteint la fin ou si on a moins de BATCH_SIZE bougies, on a tout récupéré
+            if candles_count < BATCH_SIZE || current_start >= end_timestamp {
+                break;
+            }
+            
+            println!("  📊 {} bougies téléchargées...", all_candles.len());
+            
+            // Petite pause pour éviter de surcharger l'API
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        }
+        
+        println!("✅ Total: {} bougies téléchargées", all_candles.len());
+        Ok(all_candles)
+    }
+
+    /// Vérifie s'il existe des données plus anciennes disponibles pour une série
+    /// Retourne le timestamp de la bougie la plus ancienne disponible sur l'API
+    pub async fn check_oldest_available_timestamp_async(&self, series_id: &SeriesId) -> Result<Option<i64>, ProviderError> {
+        let (symbol, interval) = self.parse_series_id(series_id)?;
+        
+        // Récupérer la première bougie disponible (la plus ancienne)
+        // On utilise startTime = 0 pour demander les données depuis le début
+        // Binance retourne les bougies par ordre croissant, donc la première est la plus ancienne
+        let start_timestamp_ms = 0; // Demander depuis le tout début
+        let candles = self.fetch_klines(&symbol, &interval, Some(start_timestamp_ms), None, Some(1)).await?;
+        
+        Ok(candles.first().map(|c| c.timestamp))
     }
 
     /// Extrait le symbole et l'intervalle depuis un SeriesId
@@ -114,7 +235,9 @@ impl BinanceProvider {
         }
 
         let symbol = parts[0].to_uppercase();
-        let interval = parts[1..].join("_").to_lowercase();
+        // IMPORTANT: Ne pas convertir l'intervalle en minuscule car Binance est sensible à la casse
+        // "1m" = 1 minute, "1M" = 1 mois
+        let interval = parts[1..].join("_");
 
         Ok((symbol, interval))
     }

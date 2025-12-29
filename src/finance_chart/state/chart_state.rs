@@ -82,6 +82,8 @@ impl ChartState {
     /// Retourne les bougies visibles dans le viewport actuel pour toutes les séries actives
     pub fn visible_candles(&self) -> Vec<(super::super::core::SeriesId, &[super::super::core::Candle])> {
         let (min_time, max_time) = self.viewport.time_scale().time_range();
+        
+        // Collecter les bougies visibles
         self.series_manager.visible_candles(min_time..max_time)
     }
 

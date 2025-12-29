@@ -162,35 +162,70 @@ impl TimeSeries {
             return 0;
         }
 
+        // Filtrer et valider les nouvelles bougies
+        let mut valid_new_candles: Vec<Candle> = new_candles
+            .into_iter()
+            .filter(|c| {
+                if let Err(e) = Self::validate_candle(c) {
+                    eprintln!("⚠️ Bougie invalide ignorée: {} (timestamp: {})", e, c.timestamp);
+                    false
+                } else {
+                    true
+                }
+            })
+            .collect();
+        
+        if valid_new_candles.is_empty() {
+            return 0;
+        }
+        
+        // Trier les nouvelles bougies par timestamp (elles peuvent arriver dans le désordre)
+        valid_new_candles.sort_by_key(|c| c.timestamp);
+        
+        // Si la série existante est vide, on peut simplement remplacer
+        if self.candles.is_empty() {
+            let count = valid_new_candles.len();
+            self.candles = valid_new_candles;
+            self.price_cache.invalidate();
+            self.time_cache.invalidate();
+            return count;
+        }
+        
+        // Algorithme de fusion optimisé : construire un nouveau Vec au lieu d'insérer
+        // Cela évite les déplacements coûteux de Vec::insert
+        let mut merged = Vec::with_capacity(self.candles.len() + valid_new_candles.len());
+        let mut existing_idx = 0;
+        let mut new_idx = 0;
         let mut added_count = 0;
         
-        for new_candle in new_candles {
-            // Valider la bougie avant insertion
-            if let Err(e) = Self::validate_candle(&new_candle) {
-                eprintln!("⚠️ Bougie invalide ignorée: {} (timestamp: {})", e, new_candle.timestamp);
-                continue;
-            }
+        while existing_idx < self.candles.len() && new_idx < valid_new_candles.len() {
+            let existing_ts = self.candles[existing_idx].timestamp;
+            let new_ts = valid_new_candles[new_idx].timestamp;
             
-            // Chercher si une bougie avec le même timestamp existe déjà
-            let existing_idx = self.candles
-                .binary_search_by_key(&new_candle.timestamp, |c| c.timestamp)
-                .ok();
-            
-            match existing_idx {
-                Some(idx) => {
-                    // Remplacer la bougie existante
-                    self.candles[idx] = new_candle;
-                }
-                None => {
-                    // Insérer à la bonne position pour maintenir l'ordre
-                    let insert_idx = self.candles
-                        .binary_search_by_key(&new_candle.timestamp, |c| c.timestamp)
-                        .unwrap_or_else(|idx| idx);
-                    self.candles.insert(insert_idx, new_candle);
-                    added_count += 1;
-                }
+            if existing_ts < new_ts {
+                merged.push(self.candles[existing_idx].clone());
+                existing_idx += 1;
+            } else if existing_ts > new_ts {
+                merged.push(valid_new_candles[new_idx].clone());
+                new_idx += 1;
+                added_count += 1;
+            } else {
+                // Même timestamp : remplacer par la nouvelle bougie
+                merged.push(valid_new_candles[new_idx].clone());
+                existing_idx += 1;
+                new_idx += 1;
             }
         }
+        
+        // Ajouter les bougies restantes
+        merged.extend_from_slice(&self.candles[existing_idx..]);
+        while new_idx < valid_new_candles.len() {
+            merged.push(valid_new_candles[new_idx].clone());
+            new_idx += 1;
+            added_count += 1;
+        }
+        
+        self.candles = merged;
         
         // Invalider les caches
         self.price_cache.invalidate();
@@ -332,25 +367,33 @@ impl TimeSeries {
     /// Retourne les bougies visibles dans une plage de timestamps
     /// 
     /// Utilise une recherche binaire pour efficacité avec grandes séries
+    /// Inclut toutes les bougies dont le timestamp est >= start et < end
     pub fn visible_candles(&self, time_range: Range<i64>) -> &[Candle] {
         if self.candles.is_empty() {
             return &[];
         }
 
         // Recherche binaire pour trouver le début
+        // On veut inclure toutes les bougies avec timestamp >= time_range.start
         let start_idx = self
             .candles
             .binary_search_by_key(&time_range.start, |c| c.timestamp)
             .unwrap_or_else(|idx| idx);
 
         // Recherche binaire pour trouver la fin
+        // On veut inclure toutes les bougies avec timestamp < time_range.end
+        // Si time_range.end correspond exactement à un timestamp, on l'inclut aussi
         let end_idx = self
             .candles
             .binary_search_by_key(&time_range.end, |c| c.timestamp)
-            .map(|idx| idx + 1)
-            .unwrap_or_else(|idx| idx);
+            .map(|idx| idx + 1) // Inclure la bougie à time_range.end si elle existe
+            .unwrap_or_else(|idx| idx); // Sinon, inclure toutes jusqu'à idx
 
-        &self.candles[start_idx.min(self.candles.len())..end_idx.min(self.candles.len())]
+        // S'assurer que les indices sont valides
+        let start = start_idx.min(self.candles.len());
+        let end = end_idx.min(self.candles.len()).max(start);
+        
+        &self.candles[start..end]
     }
 
     /// Détecte les gaps dans les données selon l'intervalle attendu

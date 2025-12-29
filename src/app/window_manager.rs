@@ -8,6 +8,7 @@ pub enum WindowType {
     Main,
     Settings,
     ProviderConfig,
+    Downloads,
 }
 
 /// Gestionnaire de fenêtres simplifié
@@ -16,6 +17,7 @@ pub struct WindowManager {
     main_window_id: Option<window::Id>,
     settings_window_id: Option<window::Id>,
     provider_config_window_id: Option<window::Id>,
+    downloads_window_id: Option<window::Id>,
 }
 
 impl WindowManager {
@@ -24,6 +26,7 @@ impl WindowManager {
             main_window_id: Some(main_id),
             settings_window_id: None,
             provider_config_window_id: None,
+            downloads_window_id: None,
         }
     }
     
@@ -32,6 +35,7 @@ impl WindowManager {
             WindowType::Main => self.main_window_id,
             WindowType::Settings => self.settings_window_id,
             WindowType::ProviderConfig => self.provider_config_window_id,
+            WindowType::Downloads => self.downloads_window_id,
         }
     }
     
@@ -40,6 +44,7 @@ impl WindowManager {
             WindowType::Main => self.main_window_id = Some(id),
             WindowType::Settings => self.settings_window_id = Some(id),
             WindowType::ProviderConfig => self.provider_config_window_id = Some(id),
+            WindowType::Downloads => self.downloads_window_id = Some(id),
         }
     }
     
@@ -48,6 +53,7 @@ impl WindowManager {
             WindowType::Main => self.main_window_id = None,
             WindowType::Settings => self.settings_window_id = None,
             WindowType::ProviderConfig => self.provider_config_window_id = None,
+            WindowType::Downloads => self.downloads_window_id = None,
         }
     }
     
@@ -62,6 +68,8 @@ impl WindowManager {
             Some(WindowType::Settings)
         } else if self.provider_config_window_id == Some(id) {
             Some(WindowType::ProviderConfig)
+        } else if self.downloads_window_id == Some(id) {
+            Some(WindowType::Downloads)
         } else {
             None
         }

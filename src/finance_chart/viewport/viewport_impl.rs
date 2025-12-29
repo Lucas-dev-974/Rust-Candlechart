@@ -3,7 +3,7 @@ use super::super::core::TimeSeries;
 
 /// Limites de zoom temporel pour éviter les comportements extrêmes
 const MIN_TIME_RANGE: i64 = 60;        // Minimum 1 minute visible
-const MAX_TIME_RANGE: i64 = 365 * 24 * 3600; // Maximum 1 an visible
+const MAX_TIME_RANGE: i64 = 10 * 365 * 24 * 3600; // Maximum 10 ans visible (pour les séries 1M)
 
 /// Limites de zoom de prix pour éviter les comportements extrêmes
 const MIN_PRICE_RANGE: f64 = 0.01;     // Minimum 0.01 de plage de prix
@@ -52,21 +52,68 @@ impl Viewport {
 
         // Calculer l'intervalle entre bougies (supposé constant)
         let total_candles = data.len();
-        if total_candles < 2 {
-            // Cas spécial : moins de 2 bougies, afficher toutes les données
+        if total_candles == 0 {
+            return;
+        }
+        
+        if total_candles == 1 {
+            // Cas spécial : une seule bougie, afficher avec une petite marge temporelle
             if let Some((min_price, max_price)) = data.price_range() {
-                self.price_scale.set_price_range(min_price, max_price);
+                // Ajouter une marge de 10% pour la visibilité
+                let price_margin = (max_price - min_price) * 0.1;
+                self.price_scale.set_price_range(
+                    min_price - price_margin,
+                    max_price + price_margin
+                );
             }
-            self.time_scale.set_time_range(min_time, max_time);
+            // Pour le temps, créer une petite plage autour de la bougie (1 jour de chaque côté)
+            let one_day = 86400;
+            self.time_scale.set_time_range(min_time - one_day, max_time + one_day);
             return;
         }
 
+        // Limiter le nombre de bougies visibles au nombre réel de bougies disponibles
+        let actual_visible_candles = visible_candles.min(total_candles);
+        
         let total_time_range = max_time - min_time;
-        let candle_interval = total_time_range / (total_candles as i64 - 1);
+        
+        // Si on veut afficher toutes les bougies ou plus, afficher toutes les données
+        // Pour les séries avec peu de bougies (comme 1M), toujours afficher toutes les données
+        if actual_visible_candles >= total_candles || total_candles <= 50 {
+            // Pour les séries avec peu de bougies, ajouter un petit padding temporel
+            // pour s'assurer que toutes les bougies sont visibles
+            let time_padding = if total_candles <= 50 && total_time_range > 0 {
+                total_time_range / 20 // 5% de padding de chaque côté
+            } else {
+                0
+            };
+            
+            self.time_scale.set_time_range(
+                min_time.saturating_sub(time_padding),
+                max_time + time_padding
+            );
+            
+            if let Some((min_price, max_price)) = data.price_range() {
+                // Ajouter une petite marge pour la visibilité
+                let price_margin = (max_price - min_price) * 0.05;
+                self.price_scale.set_price_range(
+                    min_price - price_margin,
+                    max_price + price_margin
+                );
+            }
+            return;
+        }
+        
+        // Calculer l'intervalle moyen entre bougies
+        let candle_interval = if total_candles > 1 {
+            total_time_range / (total_candles as i64 - 1)
+        } else {
+            total_time_range
+        };
 
         // Calculer la plage de temps pour les N dernières bougies
-        let visible_time_range = candle_interval * visible_candles as i64;
-        let start_time = max_time - visible_time_range;
+        let visible_time_range = candle_interval * actual_visible_candles as i64;
+        let start_time = (max_time - visible_time_range).max(min_time); // S'assurer qu'on ne dépasse pas min_time
 
         self.time_scale.set_time_range(start_time, max_time);
 
@@ -83,7 +130,12 @@ impl Viewport {
             })
         };
         
-        self.price_scale.set_price_range(price_range.0, price_range.1);
+        // Ajouter une petite marge pour la visibilité
+        let price_margin = (price_range.1 - price_range.0) * 0.05;
+        self.price_scale.set_price_range(
+            price_range.0 - price_margin,
+            price_range.1 + price_margin
+        );
     }
 
     /// Calcule la plage de prix pour un slice de bougies

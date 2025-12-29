@@ -66,3 +66,17 @@ pub fn separator() -> Element<'static, Message> {
         .into()
 }
 
+/// Crée une barre de progression indéterminée (animation de chargement)
+pub fn progress_bar() -> Element<'static, Message> {
+    // Utiliser un container avec un fond coloré simple
+    container(Space::new())
+        .width(Length::Fixed(200.0))
+        .height(Length::Fixed(4.0))
+        .style(|_theme| container::Style {
+            background: Some(iced::Background::Color(Color::from_rgb(0.2, 0.6, 1.0))),
+            ..Default::default()
+        })
+        .into()
+}
+
+

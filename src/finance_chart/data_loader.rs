@@ -72,6 +72,36 @@ const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
 /// Nombre maximum de bougies par fichier
 const MAX_CANDLES: usize = 1_000_000;
 
+/// Convertit un intervalle en nom de fichier
+/// 
+/// - "1m" → "1min.json"
+/// - "1M" → "1month.json"
+/// - Les autres intervalles restent inchangés
+pub fn interval_to_filename(interval: &str) -> String {
+    match interval {
+        "1m" => "1min.json".to_string(),
+        "1M" => "1month.json".to_string(),
+        _ => format!("{}.json", interval),
+    }
+}
+
+/// Convertit un nom de fichier en intervalle
+/// 
+/// - "1min.json" → "1m"
+/// - "1month.json" → "1M"
+/// - Les autres restent inchangés
+pub fn filename_to_interval(filename: &str) -> String {
+    if filename == "1min.json" {
+        "1m".to_string()
+    } else if filename == "1month.json" {
+        "1M".to_string()
+    } else if filename.ends_with(".json") {
+        filename.trim_end_matches(".json").to_string()
+    } else {
+        filename.to_string()
+    }
+}
+
 /// Valide les données JSON chargées
 fn validate_json_data(data: &JsonData) -> Result<(), LoadError> {
     // Vérifier que le symbole n'est pas vide
@@ -186,15 +216,10 @@ pub fn load_from_json<P: AsRef<Path>>(path: P) -> Result<SeriesData, LoadError> 
     // Valider les données
     validate_json_data(&json_data)?;
 
-    // Extraire le nom de la série depuis le nom du fichier
-    let file_name = path.as_ref()
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("unknown")
-        .to_string();
-
-    // Créer l'ID de la série
-    let series_id = SeriesId::new(file_name.clone());
+    // Créer l'ID de la série à partir du symbole et de l'intervalle du JSON
+    // Format: SYMBOL_INTERVAL (ex: BTCUSDT_1h)
+    let series_id_name = format!("{}_{}", json_data.symbol, json_data.interval);
+    let series_id = SeriesId::new(series_id_name);
 
     // Convertir en TimeSeries
     let mut timeseries = TimeSeries::new();
@@ -229,7 +254,7 @@ pub fn load_from_json<P: AsRef<Path>>(path: P) -> Result<SeriesData, LoadError> 
     Ok(series)
 }
 
-/// Charge toutes les séries depuis un dossier
+/// Charge toutes les séries depuis un dossier (récursif)
 ///
 /// # Arguments
 /// * `dir_path` - Chemin vers le dossier contenant les fichiers JSON
@@ -237,20 +262,56 @@ pub fn load_from_json<P: AsRef<Path>>(path: P) -> Result<SeriesData, LoadError> 
 /// # Returns
 /// * `Ok(Vec<SeriesData>)` - Liste de toutes les séries chargées
 /// * `Err(LoadError)` - Erreur de chargement
+///
+/// # Structure supportée
+/// - `data/*.json` (ancien format)
+/// - `data/{Provider}/{Symbol}/*.json` (nouveau format)
 pub fn load_all_from_directory<P: AsRef<Path>>(dir_path: P) -> Result<Vec<SeriesData>, LoadError> {
     use std::fs;
     
     let mut series_list = Vec::new();
-    let dir = fs::read_dir(dir_path).map_err(|e| LoadError::FileOpen(e))?;
+    let dir = fs::read_dir(&dir_path).map_err(|e| LoadError::FileOpen(e))?;
     
     for entry in dir {
         let entry = entry.map_err(|e| LoadError::FileOpen(e))?;
         let path = entry.path();
         
-        // Charger uniquement les fichiers .json
-        if path.extension().and_then(|s| s.to_str()) == Some("json") {
+        if path.is_dir() {
+            // Si c'est un dossier, chercher récursivement
+            match load_all_from_directory(&path) {
+                Ok(mut sub_series) => series_list.append(&mut sub_series),
+                Err(e) => {
+                    eprintln!("⚠️ Erreur lors du chargement du dossier {:?}: {}", path, e);
+                }
+            }
+        } else if path.extension().and_then(|s| s.to_str()) == Some("json") {
+            // Charger uniquement les fichiers .json
             match load_from_json(&path) {
-                Ok(series) => series_list.push(series),
+                Ok(mut series) => {
+                    // Si le nom du fichier utilise le nouveau format (1min.json, 1month.json),
+                    // corriger l'intervalle dans les données pour correspondre au nom du fichier
+                    if let Some(file_name) = path.file_name().and_then(|s| s.to_str()) {
+                        let expected_interval = filename_to_interval(file_name);
+                        if expected_interval != series.interval {
+                            // Le fichier utilise le nouveau format ou il y a une incohérence
+                            let old_interval = series.interval.clone();
+                            series.interval = expected_interval.clone();
+                            // Recalculer le SeriesId avec le bon intervalle
+                            let series_id_name = format!("{}_{}", series.symbol, expected_interval);
+                            series.id = SeriesId::new(series_id_name);
+                            
+                            // Afficher un message informatif
+                            if file_name == "1min.json" || file_name == "1month.json" {
+                                println!("  ℹ️  {:?}: Intervalle corrigé de '{}' à '{}' (nouveau format de fichier)", 
+                                    path, old_interval, expected_interval);
+                            } else {
+                                eprintln!("⚠️ Incohérence dans {:?}: le fichier s'appelle '{}' mais contient l'intervalle '{}'. Corrigé en '{}'", 
+                                    path, file_name, old_interval, expected_interval);
+                            }
+                        }
+                    }
+                    series_list.push(series);
+                }
                 Err(e) => {
                     eprintln!("⚠️ Erreur lors du chargement de {:?}: {}", path, e);
                 }
@@ -259,6 +320,41 @@ pub fn load_all_from_directory<P: AsRef<Path>>(dir_path: P) -> Result<Vec<Series
     }
     
     Ok(series_list)
+}
+
+/// Vérifie si un dossier est vide (pas de fichiers JSON)
+///
+/// # Arguments
+/// * `dir_path` - Chemin vers le dossier à vérifier
+///
+/// # Returns
+/// * `Ok(true)` - Le dossier est vide ou n'existe pas
+/// * `Ok(false)` - Le dossier contient des fichiers JSON
+/// * `Err(LoadError)` - Erreur lors de la vérification
+pub fn is_directory_empty<P: AsRef<Path>>(dir_path: P) -> Result<bool, LoadError> {
+    use std::fs;
+    
+    let dir = match fs::read_dir(&dir_path) {
+        Ok(dir) => dir,
+        Err(_) => return Ok(true), // Dossier n'existe pas = vide
+    };
+    
+    for entry in dir {
+        let entry = entry.map_err(|e| LoadError::FileOpen(e))?;
+        let path = entry.path();
+        
+        if path.is_dir() {
+            // Vérifier récursivement dans les sous-dossiers
+            if !is_directory_empty(&path)? {
+                return Ok(false);
+            }
+        } else if path.extension().and_then(|s| s.to_str()) == Some("json") {
+            // Trouvé un fichier JSON, le dossier n'est pas vide
+            return Ok(false);
+        }
+    }
+    
+    Ok(true)
 }
 
 /// Erreur de sauvegarde des données

@@ -262,11 +262,29 @@ impl<'a> Program<ChartMessage> for ChartProgram<'a> {
         render_grid(&mut frame, &self.chart_state.viewport, Some(grid_style));
         
         // Rendre toutes les séries actives avec des couleurs différentes
+        // Pour les séries avec peu de bougies, passer toutes les bougies au renderer
         let visible_series = self.chart_state.visible_candles();
         for (series_idx, (series_id, candles)) in visible_series.iter().enumerate() {
+            // Si on a très peu de bougies visibles mais que la série en a plus,
+            // c'est probablement un problème de filtrage - utiliser toutes les bougies
+            let candles_to_render = if candles.len() <= 5 {
+                if let Some(series) = self.chart_state.series_manager.get_series(series_id) {
+                    if series.data.len() > candles.len() * 2 {
+                        // Le filtrage a retiré trop de bougies, utiliser toutes les bougies
+                        series.data.all_candles()
+                    } else {
+                        *candles
+                    }
+                } else {
+                    *candles
+                }
+            } else {
+                *candles
+            };
+            
             // Générer des couleurs différentes pour chaque série
             let series_colors = self.get_series_colors(series_idx, series_id);
-            render_candlesticks(&mut frame, candles, &self.chart_state.viewport, Some(series_colors));
+            render_candlesticks(&mut frame, candles_to_render, &self.chart_state.viewport, Some(series_colors));
         }
         
         // Afficher la ligne de prix courant de la première série active

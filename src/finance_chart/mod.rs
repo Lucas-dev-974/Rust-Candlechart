@@ -35,7 +35,7 @@ pub mod indicators;
 // Ré-exports principaux
 pub use state::ChartState;
 pub use widget::chart;
-pub use data_loader::{load_from_json, load_all_from_directory};
+pub use data_loader::{load_from_json, load_all_from_directory, is_directory_empty, save_to_json};
 pub use series_select::series_select_box;
 pub use settings::{ChartStyle, SettingsState};
 pub use messages::{ChartMessage, YAxisMessage, XAxisMessage, ToolsPanelMessage, SeriesPanelMessage};

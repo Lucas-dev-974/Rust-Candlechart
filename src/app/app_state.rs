@@ -9,6 +9,7 @@ use std::sync::Arc;
 use crate::finance_chart::{
     ChartState, ToolsState, SettingsState, ChartStyle,
     BinanceProvider, ProviderConfigManager, ProviderType,
+    core::SeriesId,
 };
 use crate::app::{
     constants::*,
@@ -20,6 +21,7 @@ use crate::app::{
     account_type::AccountTypeState,
     account_info::AccountInfo,
     panel_persistence::PanelPersistenceState,
+    download_manager::DownloadManager,
 };
 
 /// Application principale - possède directement tout l'état (pas de Rc<RefCell>)
@@ -74,6 +76,21 @@ pub struct ChartApp {
     
     // État de l'onglet d'indicateurs
     pub indicators_panel_open: bool, // Indique si l'onglet d'indicateurs est ouvert
+    
+    // État des téléchargements
+    pub download_manager: DownloadManager, // Gestionnaire de téléchargements multiples
+}
+
+/// État de progression d'un téléchargement
+#[derive(Debug, Clone)]
+pub struct DownloadProgress {
+    pub series_id: SeriesId,
+    pub current_count: usize,
+    pub estimated_total: usize,
+    pub current_start: i64,
+    pub target_end: i64,
+    pub gaps_remaining: Vec<(i64, i64)>,
+    pub paused: bool, // Indique si le téléchargement est en pause
 }
 
 impl ChartApp {
@@ -137,7 +154,7 @@ impl ChartApp {
         });
 
         // Créer une Task pour charger les séries de manière asynchrone
-        let load_series_task = data_loading::create_load_series_task();
+        let load_series_task = data_loading::create_load_series_task(binance_provider.clone());
 
         (
             Self { 
@@ -164,6 +181,7 @@ impl ChartApp {
                 provider_connection_status: None,
                 provider_connection_testing: false,
                 indicators_panel_open: false,
+                download_manager: DownloadManager::new(),
             },
             Task::batch(vec![
                 open_task.map(Message::MainWindowOpened),
@@ -246,6 +264,14 @@ impl ChartApp {
         match self.windows.get_window_type(window_id) {
             Some(WindowType::Settings) => String::from("Settings - Style Chart"),
             Some(WindowType::ProviderConfig) => String::from("Provider Configuration"),
+            Some(WindowType::Downloads) => {
+                let count = self.download_manager.count();
+                if count > 0 {
+                    format!("Téléchargements ({})", count)
+                } else {
+                    String::from("Téléchargements")
+                }
+            }
             Some(WindowType::Main) | None => {
                 // Afficher le symbole de la série active, ou un titre par défaut
                 if let Some(active_series) = self.chart_state.series_manager.active_series().next() {

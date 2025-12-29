@@ -84,10 +84,15 @@ pub fn render_candlesticks(
     let candle_width = calculate_bar_width(candle_period, max_time - min_time, viewport.width());
 
     // Dessiner uniquement les bougies visibles
+    // Pour les séries avec peu de bougies, dessiner toutes les bougies même si elles sont légèrement en dehors
+    let is_small_series = candles.len() <= 50;
+    let margin = if is_small_series { candle_width * 2.0 } else { candle_width };
+    
     for candle in candles {
         // Vérifier si la bougie est visible horizontalement
         let x = viewport.time_scale().time_to_x(candle.timestamp);
-        if x >= -candle_width && x <= viewport.width() + candle_width {
+        // Pour les petites séries, utiliser une marge plus large pour s'assurer que toutes les bougies sont visibles
+        if x >= -margin && x <= viewport.width() + margin {
             render_single_candle(frame, candle, viewport, candle_width, &colors);
         }
     }

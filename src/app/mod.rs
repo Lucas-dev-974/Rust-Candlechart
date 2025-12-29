@@ -20,6 +20,7 @@ pub mod account_type;
 pub mod account_info;
 pub mod panel_persistence;
 pub mod drag_overlay;
+pub mod download_manager;
 
 pub use messages::Message;
 pub use app_state::ChartApp;

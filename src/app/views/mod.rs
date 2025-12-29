@@ -18,9 +18,11 @@ mod settings;
 mod provider;
 mod account;
 mod helpers;
+mod downloads_view;
 
 // Réexporter les fonctions publiques pour compatibilité
 pub use main_view::view_main;
 pub use settings::view_settings;
 pub use provider::view_provider_config;
+pub use downloads_view::view_downloads;
 

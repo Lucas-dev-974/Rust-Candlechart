@@ -31,6 +31,8 @@ pub enum Message {
     SettingsWindowOpened(window::Id),
     MainWindowOpened(window::Id),
     WindowClosed(window::Id),
+    OpenDownloads,
+    DownloadsWindowOpened(window::Id),
     
     // === Messages des settings ===
     SelectColor(usize, SerializableColor),
@@ -42,8 +44,24 @@ pub enum Message {
     // === Messages temps réel ===
     RealtimeUpdate,
     RealtimeUpdateComplete(Vec<(SeriesId, String, Result<Option<Candle>, String>)>),
+    #[allow(dead_code)] // Utilisé dans main.rs mais jamais construit directement
     CompleteMissingData,
     CompleteMissingDataComplete(Vec<(SeriesId, String, Result<Vec<Candle>, String>)>),
+    #[allow(dead_code)] // Utilisé dans main.rs mais jamais construit directement
+    LoadFullHistory(SeriesId),
+    LoadFullHistoryComplete(SeriesId, String, Result<Vec<Candle>, String>),
+    /// Démarrer le téléchargement par batch avec la liste des gaps
+    StartBatchDownload(SeriesId, Vec<(i64, i64)>, usize), // series_id, gaps, estimated_total
+    /// Résultat d'un batch de téléchargement (avec next_start pour continuer)
+    BatchDownloadResult(SeriesId, Vec<Candle>, usize, usize, i64), // series_id, candles, count, estimated, next_start
+    /// Téléchargement terminé
+    DownloadComplete(SeriesId),
+    /// Mettre en pause un téléchargement
+    PauseDownload(SeriesId),
+    /// Reprendre un téléchargement
+    ResumeDownload(SeriesId),
+    /// Arrêter un téléchargement
+    StopDownload(SeriesId),
     #[allow(dead_code)] // Utilisé dans le match de main.rs (ligne 308)
     CompleteGaps,
     CompleteGapsComplete(Vec<(SeriesId, String, (i64, i64), Result<Vec<Candle>, String>)>),

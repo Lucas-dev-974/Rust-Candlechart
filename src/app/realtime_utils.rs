@@ -69,6 +69,33 @@ pub fn compute_fetch_since(last_timestamp: i64, current_time: i64, interval: &st
     }
 }
 
+/// Calcule le seuil pour détecter un gap récent
+/// 
+/// Le seuil est basé sur l'intervalle : intervalle + 10% de buffer, minimum 5 minutes.
+/// Utilisé pour déterminer si les données sont trop anciennes par rapport à maintenant.
+/// 
+/// # Arguments
+/// * `interval_seconds` - L'intervalle en secondes
+/// 
+/// # Returns
+/// Le seuil en secondes
+#[inline]
+pub fn calculate_recent_gap_threshold(interval_seconds: i64) -> i64 {
+    std::cmp::max(interval_seconds + interval_seconds / 10, 300)
+}
+
+/// Obtient le timestamp Unix actuel en secondes
+/// 
+/// # Returns
+/// Le timestamp Unix actuel (secondes depuis l'epoch)
+#[inline]
+pub fn current_timestamp() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("Erreur horloge système")
+        .as_secs() as i64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
