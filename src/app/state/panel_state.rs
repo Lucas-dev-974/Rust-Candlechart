@@ -126,13 +126,13 @@ pub struct PanelsState {
 
 /// Fonction helper pour créer un volume panel par défaut lors de la désérialisation
 fn default_volume_panel() -> PanelState {
-    use crate::app::constants::VOLUME_CHART_HEIGHT;
+    use crate::app::utils::constants::VOLUME_CHART_HEIGHT;
     PanelState::new(VOLUME_CHART_HEIGHT, MIN_PANEL_SIZE, 400.0)
 }
 
 /// Fonction helper pour créer un RSI panel par défaut lors de la désérialisation
 fn default_rsi_panel() -> PanelState {
-    use crate::app::constants::RSI_CHART_HEIGHT;
+    use crate::app::utils::constants::RSI_CHART_HEIGHT;
     let mut panel = PanelState::new(RSI_CHART_HEIGHT, MIN_PANEL_SIZE, 400.0);
     panel.visible = false; // Le RSI panel est masqué par défaut
     panel
@@ -140,7 +140,7 @@ fn default_rsi_panel() -> PanelState {
 
 /// Fonction helper pour créer un MACD panel par défaut lors de la désérialisation
 fn default_macd_panel() -> PanelState {
-    use crate::app::constants::MACD_CHART_HEIGHT;
+    use crate::app::utils::constants::MACD_CHART_HEIGHT;
     let mut panel = PanelState::new(MACD_CHART_HEIGHT, MIN_PANEL_SIZE, 400.0);
     panel.visible = false; // Le MACD panel est masqué par défaut
     panel
@@ -148,7 +148,7 @@ fn default_macd_panel() -> PanelState {
 
 impl PanelsState {
     pub fn new() -> Self {
-        use crate::app::constants::{RIGHT_PANEL_WIDTH, BOTTOM_PANEL_HEIGHT, VOLUME_CHART_HEIGHT, RSI_CHART_HEIGHT, MACD_CHART_HEIGHT};
+        use crate::app::utils::constants::{RIGHT_PANEL_WIDTH, BOTTOM_PANEL_HEIGHT, VOLUME_CHART_HEIGHT, RSI_CHART_HEIGHT, MACD_CHART_HEIGHT};
         let mut rsi_panel = PanelState::new(RSI_CHART_HEIGHT, MIN_PANEL_SIZE, 400.0);
         rsi_panel.visible = false; // Le RSI panel est masqué par défaut
         let mut macd_panel = PanelState::new(MACD_CHART_HEIGHT, MIN_PANEL_SIZE, 400.0);

@@ -326,22 +326,6 @@ impl TimeSeries {
         result
     }
 
-    /// Retourne la plage de volume (min, max) pour toutes les bougies
-    /// Le volume minimum est toujours 0 pour une meilleure visualisation (barres depuis le bas)
-    pub fn volume_range(&self) -> Option<(f64, f64)> {
-        if self.candles.is_empty() {
-            return None;
-        }
-        
-        let result: Option<(f64, f64)> = self.candles.iter().fold(None, |acc, candle| {
-            Some(match acc {
-                None => (0.0, candle.volume), // Volume min commence à 0 pour visualisation
-                Some((_min, max)) => (0.0, max.max(candle.volume)), // Toujours commencer à 0
-            })
-        });
-        
-        result
-    }
 
     /// Retourne la plage de volume (min, max) pour les bougies visibles
     /// Le volume minimum est le minimum réel des bougies visibles (pas forcé à 0)

@@ -2,25 +2,21 @@
 //! 
 //! Ce module contient la structure principale de l'application Iced et sa logique.
 
-pub mod constants;
-pub mod utils;
+// Modules principaux
 pub mod window_manager;
 pub mod messages;
 pub mod app_state;
-pub mod data_loading;
-pub mod realtime;
-pub mod realtime_utils;
-pub mod handlers;
 pub mod views;
 pub mod view_styles;
-pub mod panel_state;
-pub mod resize_handle;
-pub mod bottom_panel_sections;
-pub mod account_type;
-pub mod account_info;
-pub mod panel_persistence;
-pub mod drag_overlay;
-pub mod download_manager;
+
+// Modules organisés par domaine
+pub mod state;
+pub mod persistence;
+pub mod data;
+pub mod realtime;
+pub mod ui;
+pub mod handlers;
+pub mod utils;
 
 pub use messages::Message;
 pub use app_state::ChartApp;

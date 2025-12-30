@@ -25,11 +25,6 @@ impl VolumeScale {
         }
     }
 
-    /// Met à jour la hauteur disponible
-    pub fn set_height(&mut self, height: f32) {
-        self.height = height;
-    }
-
     /// Retourne la plage de volume actuelle
     pub fn volume_range(&self) -> (f64, f64) {
         (self.min_volume, self.max_volume)

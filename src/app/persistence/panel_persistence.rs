@@ -4,10 +4,7 @@
 //! (visibilité, taille, section active) dans un fichier JSON.
 
 use serde::{Deserialize, Serialize};
-use super::{
-    panel_state::PanelsState,
-    bottom_panel_sections::BottomPanelSection,
-};
+use crate::app::state::{PanelsState, BottomPanelSection};
 
 /// État complet des panneaux à sauvegarder
 #[derive(Debug, Clone, Serialize, Deserialize)]

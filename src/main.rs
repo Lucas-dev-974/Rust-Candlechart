@@ -12,8 +12,8 @@ use finance_chart::{
     settings::color_fields,
 };
 
-// Utiliser les constantes du module app::constants
-use app::constants::*;
+// Utiliser les constantes du module app::utils::constants
+use app::utils::constants::{SETTINGS_WINDOW_WIDTH, SETTINGS_WINDOW_HEIGHT};
 
 fn main() -> iced::Result {
     iced::daemon(ChartApp::new, ChartApp::update, ChartApp::view)
@@ -24,81 +24,30 @@ fn main() -> iced::Result {
 }
 
 // Utiliser ChartApp et Message du module app
-use app::{ChartApp, Message, window_manager::WindowType};
+use app::{ChartApp, Message, window_manager::WindowType, state::AccountType};
 
 impl ChartApp {
 
     fn update(&mut self, message: Message) -> Task<Message> {
+        use crate::app::handlers::*;
+        
         match message {
             // === Gestion des messages du graphique ===
             Message::Chart(chart_msg) => {
-                crate::app::handlers::handle_chart_message(self, chart_msg);
+                handle_chart_message(self, chart_msg);
                 Task::none()
             }
             
             // === Gestion des messages des axes ===
-            Message::YAxis(YAxisMessage::ZoomVertical { factor }) => {
-                self.chart_state.zoom_vertical(factor);
-                Task::none()
-            }
-            Message::XAxis(XAxisMessage::ZoomHorizontal { factor }) => {
-                self.chart_state.zoom(factor);
-                Task::none()
-            }
+            Message::YAxis(msg) => handle_yaxis_message(self, msg),
+            Message::XAxis(msg) => handle_xaxis_message(self, msg),
             
             // === Gestion des messages du panel d'outils ===
-            Message::ToolsPanel(ToolsPanelMessage::ToggleTool { tool }) => {
-                if self.tools_state.selected_tool == Some(tool) {
-                    self.tools_state.selected_tool = None;
-                } else {
-                    self.tools_state.selected_tool = Some(tool);
-                }
-                Task::none()
-            }
-            Message::ToolsPanel(ToolsPanelMessage::ToggleIndicatorsPanel) => {
-                self.indicators_panel_open = !self.indicators_panel_open;
-                Task::none()
-            }
+            Message::ToolsPanel(msg) => handle_tools_panel_message(self, msg),
             
             // === Gestion des messages du panel de séries ===
             Message::SeriesPanel(SeriesPanelMessage::SelectSeriesByName { series_name }) => {
-                println!("🔄 Sélection de la série: {}", series_name);
-                
-                // Trouver le SeriesId correspondant au nom
-                let series_id_opt = self.chart_state.series_manager.all_series()
-                    .find(|s| s.full_name() == series_name)
-                    .map(|s| s.id.clone());
-                
-                if let Some(series_id) = series_id_opt {
-                    // Activer uniquement cette série (désactive toutes les autres)
-                    self.chart_state.series_manager.activate_only_series(series_id.clone());
-                    // Mettre à jour le viewport après activation
-                    self.chart_state.update_viewport_from_series();
-                    
-                    // Vérifier automatiquement les gaps de la série
-                    // et télécharger les données manquantes (historique + gaps)
-                    if let Some(series) = self.chart_state.series_manager.get_series(&series_id) {
-                        let current_count = series.data.len();
-                        let oldest = series.data.min_timestamp();
-                        
-                        println!("🔍 Vérification série {}: {} bougies", series_name, current_count);
-                        if let Some(ts) = oldest {
-                            println!("  📅 Première bougie: {}", ts);
-                        }
-                        
-                        // Vérifier s'il y a des gaps à combler (récent, internes, ou historique)
-                        // has_gaps_to_fill vérifie déjà si la série est vide
-                        let has_gaps = crate::app::realtime::has_gaps_to_fill(self, &series_id);
-                        
-                        if has_gaps {
-                            println!("📥 Série {} a des gaps à combler, lancement de l'auto-complétion...", series_name);
-                            return crate::app::realtime::auto_complete_series(self, series_id);
-                        } else {
-                            println!("✅ Série {} complète ({} bougies, pas de gaps)", series_name, current_count);
-                        }
-                    }
-                }
-                Task::none()
+                handle_select_series_by_name(self, series_name)
             }
             
             // === Gestion des fenêtres ===
@@ -107,679 +56,142 @@ impl ChartApp {
             Message::LoadSeriesFromDirectory => Task::none(),
             
             Message::LoadSeriesFromDirectoryComplete(result) => {
-                match result {
-                    Ok(series_list) => {
-                        for series in series_list {
-                            let series_name = series.full_name();
-                            println!(
-                                "  📊 {}: {} bougies ({} - {})",
-                                series_name,
-                                series.data.len(),
-                                series.symbol,
-                                series.interval
-                            );
-                            self.chart_state.add_series(series);
-                        }
-                        // Calculer et stocker le MACD pré-calculé une fois après le chargement initial
-                        let _ = self.chart_state.compute_and_store_macd();
-                        if self.chart_state.series_manager.total_count() == 0 {
-                            eprintln!("⚠️ Aucune série chargée. Vérifiez que le dossier 'data' contient des fichiers JSON.");
-                            return Task::none();
-                        }
-                        
-                        // Vérifier si la série active a des gaps à combler
-                        let active_series_info = self.chart_state.series_manager.active_series()
-                            .next()
-                            .map(|s| {
-                                let oldest = s.data.min_timestamp();
-                                (s.id.clone(), s.full_name(), s.data.len(), oldest)
-                            });
-                        
-                        if let Some((series_id, series_name, candle_count, oldest)) = active_series_info {
-                            println!("🔍 Vérification série active {}: {} bougies", series_name, candle_count);
-                            if let Some(ts) = oldest {
-                                println!("  📅 Première bougie: {}", ts);
-                            }
-                            
-                            // Vérifier s'il y a des gaps à combler (récent, internes, ou historique)
-                            // has_gaps_to_fill vérifie déjà si la série est vide
-                            let has_gaps = crate::app::realtime::has_gaps_to_fill(self, &series_id);
-                            
-                            if has_gaps {
-                                println!("📥 Série active {} a des gaps à combler, lancement de l'auto-complétion...", series_name);
-                                return crate::app::realtime::auto_complete_series(self, series_id);
-                            } else {
-                                println!("✅ Série active {} complète ({} bougies, pas de gaps)", series_name, candle_count);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("❌ Erreur lors du chargement des séries: {}", e);
-                    }
-                }
-                Task::none()
+                handle_load_series_complete(self, result)
             }
             
-            Message::OpenSettings => {
-                if self.windows.is_open(WindowType::Settings) {
-                    return Task::none();
-                }
-                self.editing_style = Some(self.chart_style.clone());
-                self.editing_color_index = None;
-                
-                let (id, task) = window::open(window::Settings {
-                    size: Size::new(SETTINGS_WINDOW_WIDTH, SETTINGS_WINDOW_HEIGHT),
-                    resizable: false,
-                    ..Default::default()
-                });
-                self.windows.set_id(WindowType::Settings, id);
-                task.map(Message::SettingsWindowOpened)
-            }
-            
+            Message::OpenSettings => handle_open_settings(self),
             Message::SettingsWindowOpened(_id) => Task::none(),
-            
-            Message::OpenDownloads => {
-                if self.windows.is_open(WindowType::Downloads) {
-                    return Task::none();
-                }
-                
-                let (id, task) = window::open(window::Settings {
-                    size: Size::new(500.0, 400.0),
-                    resizable: true,
-                    ..Default::default()
-                });
-                self.windows.set_id(WindowType::Downloads, id);
-                task.map(Message::DownloadsWindowOpened)
-            }
-            
+            Message::OpenDownloads => handle_open_downloads(self),
             Message::DownloadsWindowOpened(_id) => Task::none(),
-            
-            Message::WindowClosed(id) => {
-                match self.windows.get_window_type(id) {
-                    Some(WindowType::Settings) => {
-                        self.windows.remove_id(WindowType::Settings);
-                        self.editing_style = None;
-                        self.editing_color_index = None;
-                    }
-                    Some(WindowType::ProviderConfig) => {
-                        self.windows.remove_id(WindowType::ProviderConfig);
-                        self.editing_provider_token.clear();
-                    }
-                    Some(WindowType::Downloads) => {
-                        self.windows.remove_id(WindowType::Downloads);
-                    }
-                    Some(WindowType::Main) => {
-                        // Quitter l'application quand la fenêtre principale est fermée
-                        // exit() fermera automatiquement toutes les fenêtres
-                        return exit();
-                    }
-                    None => {}
-                }
-                Task::none()
-            }
+            Message::WindowClosed(id) => handle_window_closed(self, id),
             
             // === Gestion de la configuration des providers ===
-            Message::OpenProviderConfig => {
-                if self.windows.is_open(WindowType::ProviderConfig) {
-                    return Task::none();
-                }
-                
-                // Initialiser les tokens en cours d'édition
-                for provider_type in ProviderType::all() {
-                    if let Some(config) = self.provider_config.providers.get(&provider_type) {
-                        self.editing_provider_token.insert(
-                            provider_type,
-                            config.api_token.clone().unwrap_or_default(),
-                        );
-                    } else {
-                        self.editing_provider_token.insert(provider_type, String::new());
-                    }
-                }
-                
-                let (id, task) = window::open(window::Settings {
-                    size: Size::new(600.0, 500.0),
-                    resizable: false,
-                    ..Default::default()
-                });
-                self.windows.set_id(WindowType::ProviderConfig, id);
-                task.map(Message::ProviderConfigWindowOpened)
-            }
-            
+            Message::OpenProviderConfig => handle_open_provider_config(self),
             Message::ProviderConfigWindowOpened(_id) => Task::none(),
-            
             Message::UpdateProviderToken(provider_type, token) => {
-                self.editing_provider_token.insert(provider_type, token);
-                Task::none()
+                handle_update_provider_token(self, provider_type, token)
             }
-            
-            Message::ApplyProviderConfig => {
-                // Appliquer les tokens modifiés
-                for (provider_type, token) in &self.editing_provider_token {
-                    let token_opt = if token.is_empty() {
-                        None
-                    } else {
-                        Some(token.clone())
-                    };
-                    self.provider_config.set_provider_token(*provider_type, token_opt);
-                }
-                
-                // Sauvegarder la configuration
-                if let Err(e) = self.provider_config.save_to_file("provider_config.json") {
-                    eprintln!("⚠️ Erreur sauvegarde configuration providers: {}", e);
-                } else {
-                    println!("✅ Configuration des providers sauvegardée dans provider_config.json");
-                }
-                
-                // Recréer le provider avec la nouvelle configuration (Arc pour partage efficace)
-                if let Some(config) = self.provider_config.active_config() {
-                    self.binance_provider = Arc::new(BinanceProvider::with_token(config.api_token.clone()));
-                    println!("✅ Provider recréé avec la nouvelle configuration");
-                }
-                
-                // Fermer la fenêtre
-                if let Some(id) = self.windows.get_id(WindowType::ProviderConfig) {
-                    self.windows.remove_id(WindowType::ProviderConfig);
-                    self.editing_provider_token.clear();
-                    return window::close(id);
-                }
-                Task::none()
-            }
-            
-            Message::SelectProvider(provider_type) => {
-                self.provider_config.set_active_provider(provider_type);
-                
-                // Recréer le provider avec la configuration du nouveau provider actif (Arc pour partage efficace)
-                if let Some(config) = self.provider_config.active_config() {
-                    self.binance_provider = Arc::new(BinanceProvider::with_token(config.api_token.clone()));
-                    println!("✅ Provider changé et recréé");
-                }
-                
-                Task::none()
-            }
-            
-            Message::CancelProviderConfig => {
-                if let Some(id) = self.windows.get_id(WindowType::ProviderConfig) {
-                    self.windows.remove_id(WindowType::ProviderConfig);
-                    self.editing_provider_token.clear();
-                    return window::close(id);
-                }
-                Task::none()
-            }
+            Message::ApplyProviderConfig => handle_apply_provider_config(self),
+            Message::SelectProvider(provider_type) => handle_select_provider(self, provider_type),
+            Message::CancelProviderConfig => handle_cancel_provider_config(self),
             
             // === Gestion des settings ===
             Message::SelectColor(field_index, color) => {
-                if let Some(ref mut style) = self.editing_style {
-                    let fields = color_fields();
-                    if field_index < fields.len() {
-                        (fields[field_index].set)(style, color);
-                    }
-                }
-                self.editing_color_index = None;
-                Task::none()
+                handle_select_color(self, field_index, color)
             }
-            
-            Message::ApplySettings => {
-                if let Some(new_style) = self.editing_style.take() {
-                    self.chart_style = new_style.clone();
-                    if let Err(e) = new_style.save_to_file("chart_style.json") {
-                        eprintln!("⚠️ Erreur sauvegarde style: {}", e);
-                    } else {
-                        println!("✅ Style sauvegardé dans chart_style.json");
-                    }
-                }
-                if let Some(id) = self.windows.get_id(WindowType::Settings) {
-                    self.windows.remove_id(WindowType::Settings);
-                    self.editing_color_index = None;
-                    return window::close(id);
-                }
-                Task::none()
-            }
-            
-            Message::CancelSettings => {
-                self.editing_style = None;
-                self.editing_color_index = None;
-                if let Some(id) = self.windows.get_id(WindowType::Settings) {
-                    self.windows.remove_id(WindowType::Settings);
-                    return window::close(id);
-                }
-                Task::none()
-            }
-            
-            Message::ToggleColorPicker(index) => {
-                if self.editing_color_index == Some(index) {
-                    self.editing_color_index = None;
-                } else {
-                    self.editing_color_index = Some(index);
-                }
-                Task::none()
-            }
-            
-            Message::ToggleAutoScroll => {
-                if let Some(ref mut style) = self.editing_style {
-                    style.auto_scroll_enabled = !style.auto_scroll_enabled;
-                }
-                Task::none()
-            }
+            Message::ApplySettings => handle_apply_settings(self),
+            Message::CancelSettings => handle_cancel_settings(self),
+            Message::ToggleColorPicker(index) => handle_toggle_color_picker(self, index),
+            Message::ToggleAutoScroll => handle_toggle_auto_scroll(self),
             
             // === Messages temps réel ===
             Message::CompleteMissingData => {
                 self.complete_missing_data()
             }
-            
             Message::CompleteMissingDataComplete(results) => {
-                println!("📥 CompleteMissingDataComplete: {} résultats reçus", results.len());
-                self.apply_complete_missing_data_results(results)
+                handle_complete_missing_data_complete(self, results)
             }
-            
             Message::LoadFullHistory(series_id) => {
                 crate::app::realtime::load_full_history(self, series_id)
             }
-            
             Message::LoadFullHistoryComplete(series_id, series_name, result) => {
-                
-                match result {
-                    Ok(candles) => {
-                        println!("✅ Historique complet chargé pour {}: {} bougies", series_name, candles.len());
-                        // Fusionner les bougies dans la série
-                        match self.chart_state.merge_candles(&series_id, candles) {
-                            crate::finance_chart::UpdateResult::MultipleCandlesAdded(count) => {
-                                println!("  ✅ {} nouvelles bougies ajoutées", count);
-                                // Mettre à jour le viewport pour afficher toutes les données
-                                self.chart_state.update_viewport_from_series();
-                                // Sauvegarder la série mise à jour de manière asynchrone
-                                use std::collections::HashSet;
-                                let mut updated_series = HashSet::new();
-                                updated_series.insert(series_id);
-                                return crate::app::realtime::save_series_async(self, updated_series);
-                            }
-                            crate::finance_chart::UpdateResult::Error(e) => {
-                                eprintln!("  ❌ Erreur lors de la fusion: {}", e);
-                            }
-                            _ => {}
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("❌ Erreur lors du chargement de l'historique pour {}: {}", series_name, e);
-                    }
-                }
-                Task::none()
+                handle_load_full_history_complete(self, series_id, series_name, result)
             }
-            
             Message::StartBatchDownload(series_id, gaps, estimated_total) => {
-                use crate::app::app_state::DownloadProgress;
-                
-                if gaps.is_empty() {
-                    return Task::done(Message::DownloadComplete(series_id));
-                }
-                
-                // Initialiser l'état de progression dans le gestionnaire
-                let (first_start, first_end) = gaps[0];
-                let progress = DownloadProgress {
-                    series_id: series_id.clone(),
-                    current_count: 0,
-                    estimated_total,
-                    current_start: first_start,
-                    target_end: first_end,
-                    gaps_remaining: gaps[1..].to_vec(),
-                    paused: false,
-                };
-                self.download_manager.start_download(progress);
-                
-                println!("📥 Démarrage téléchargement: {} gap(s) à combler", gaps.len());
-                
-                // Lancer le premier batch
-                crate::app::realtime::download_batch(self, &series_id)
+                handle_start_batch_download(self, series_id, gaps, estimated_total)
             }
-            
-            Message::BatchDownloadResult(series_id, candles, count, _estimated, next_end) => {
-                // Vérifier si le téléchargement est toujours actif dans le gestionnaire
-                if !self.download_manager.is_downloading(&series_id) {
-                    println!("  ⚠️ Téléchargement ignoré: téléchargement annulé ou terminé pour {}", series_id.name);
-                    return Task::none();
-                }
-                
-                // 1. Fusionner les nouvelles bougies immédiatement dans le graphique
-                // Sans modifier le viewport pour ne pas perturber l'utilisateur
-                let mut should_save = false;
-                if !candles.is_empty() {
-                    match self.chart_state.merge_candles(&series_id, candles) {
-                        crate::finance_chart::UpdateResult::MultipleCandlesAdded(added) => {
-                            println!("  📊 +{} bougies fusionnées (total téléchargé: {})", added, count);
-                            // Sauvegarder seulement tous les 10 batches pour éviter les freezes
-                            // ou si c'est le dernier batch
-                            if let Some(ref progress) = self.download_manager.get_progress(&series_id) {
-                                let batch_number = (progress.current_count / 1000) + 1;
-                                should_save = batch_number % 10 == 0 || progress.gaps_remaining.is_empty();
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                
-                // 2. Préparer la sauvegarde si nécessaire
-                let save_task = if should_save {
-                    let mut updated_series = HashSet::new();
-                    updated_series.insert(series_id.clone());
-                    Some(crate::app::realtime::save_series_async(self, updated_series))
-                } else {
-                    None
-                };
-                
-                // 3. Mettre à jour l'état de progression et continuer
-                // On télécharge du récent vers l'ancien: target_end descend vers current_start
-                if self.download_manager.update_progress(&series_id, count, next_end) {
-                    // Vérifier si le gap actuel est terminé (on a atteint le début du gap)
-                    if let Some(progress) = self.download_manager.get_progress(&series_id) {
-                        if next_end <= progress.current_start {
-                            // Gap terminé, passer au suivant
-                            if let Some((gap_start, gap_end)) = self.download_manager.next_gap(&series_id) {
-                                println!("  📥 Gap suivant: {} -> {} ({} restants)", 
-                                    gap_start, gap_end, 
-                                    self.download_manager.get_progress(&series_id)
-                                        .map(|p| p.gaps_remaining.len())
-                                        .unwrap_or(0));
-                            } else {
-                                // Tous les gaps sont terminés!
-                                println!("  🏁 Tous les gaps traités, envoi DownloadComplete");
-                                // Si on doit sauvegarder, combiner avec DownloadComplete
-                                if let Some(save) = save_task {
-                                    return Task::batch(vec![
-                                        save,
-                                        Task::done(Message::DownloadComplete(series_id))
-                                    ]);
-                                }
-                                return Task::done(Message::DownloadComplete(series_id));
-                            }
-                        }
-                    }
-                    
-                    // Continuer le téléchargement (en parallèle avec la sauvegarde si nécessaire)
-                    // Vérifier que le téléchargement n'est pas en pause avant de continuer
-                    if !self.download_manager.is_paused(&series_id) {
-                        let download_task = crate::app::realtime::download_batch(self, &series_id);
-                        if let Some(save) = save_task {
-                            return Task::batch(vec![save, download_task]);
-                        }
-                        return download_task;
-                    } else {
-                        println!("  ⏸️ Téléchargement en pause pour {}, arrêt de la chaîne", series_id.name);
-                    }
-                }
-                Task::none()
+            Message::BatchDownloadResult(series_id, candles, count, estimated, next_end) => {
+                handle_batch_download_result(self, series_id, candles, count, estimated, next_end)
             }
-            
             Message::DownloadComplete(series_id) => {
-                println!("✅ Téléchargement terminé pour {}", series_id.name);
-                
-                // Retirer le téléchargement du gestionnaire
-                self.download_manager.finish_download(&series_id);
-                
-                // Mettre à jour le viewport final
-                self.chart_state.update_viewport_from_series();
-                
-                // Sauvegarder la série mise à jour (sauvegarde finale)
-                let mut updated_series = HashSet::new();
-                updated_series.insert(series_id);
-                crate::app::realtime::save_series_async(self, updated_series)
+                handle_download_complete(self, series_id)
             }
-            
             Message::PauseDownload(series_id) => {
-                if self.download_manager.pause_download(&series_id) {
-                    println!("⏸️ Téléchargement mis en pause pour {}", series_id.name);
-                }
-                Task::none()
+                handle_pause_download(self, series_id)
             }
-            
             Message::ResumeDownload(series_id) => {
-                if self.download_manager.resume_download(&series_id) {
-                    println!("▶️ Téléchargement repris pour {}", series_id.name);
-                    // Relancer le téléchargement si nécessaire
-                    if let Some(progress) = self.download_manager.get_progress(&series_id) {
-                        // Vérifier si on doit continuer le téléchargement
-                        if !progress.gaps_remaining.is_empty() || progress.target_end > progress.current_start {
-                            return crate::app::realtime::download_batch(self, &series_id);
-                        }
-                    }
-                }
-                Task::none()
+                handle_resume_download(self, series_id)
             }
-            
             Message::StopDownload(series_id) => {
-                if self.download_manager.stop_download(&series_id) {
-                    println!("⏹️ Téléchargement arrêté pour {}", series_id.name);
-                }
-                Task::none()
+                handle_stop_download(self, series_id)
             }
-            
             Message::CompleteGaps => {
                 self.complete_gaps()
             }
-            
             Message::CompleteGapsComplete(results) => {
-                println!("📥 CompleteGapsComplete: {} résultats reçus", results.len());
-                self.apply_complete_gaps_results(results)
+                handle_complete_gaps_complete(self, results)
             }
-            
             Message::SaveSeriesComplete(results) => {
-                for (series_name, result) in results {
-                    match result {
-                        Ok(()) => {
-                            println!("  ✅ {}: Sauvegardé avec succès", series_name);
-                        }
-                        Err(e) => {
-                            eprintln!("  ❌ {}: Erreur lors de la sauvegarde - {}", series_name, e);
-                        }
-                    }
-                }
-                println!("✅ Sauvegarde des séries terminée");
-                Task::none()
+                handle_save_series_complete(self, results)
             }
-            
             Message::RealtimeUpdate => {
-                self.update_realtime()
+                handle_realtime_update(self)
             }
-            
             Message::RealtimeUpdateComplete(results) => {
-                println!("📥 RealtimeUpdateComplete: {} résultats reçus", results.len());
-                self.apply_realtime_updates(results);
-                Task::none()
+                handle_realtime_update_complete(self, results)
             }
             
             // === Gestion des panneaux latéraux ===
-            Message::ToggleVolumePanel => {
-                self.panels.volume.toggle_visibility();
-                // Sauvegarder l'état des panneaux après changement de visibilité
-                self.save_panel_state();
-                Task::none()
+            Message::ToggleVolumePanel => handle_toggle_volume_panel(self),
+            Message::ToggleRSIPanel => handle_toggle_rsi_panel(self),
+            Message::ToggleMACDPanel => handle_toggle_macd_panel(self),
+            Message::ToggleBollingerBands => handle_toggle_bollinger_bands(self),
+            Message::ToggleMovingAverage => handle_toggle_moving_average(self),
+            Message::UpdateRSIPeriod(period) => handle_update_rsi_period(self, period),
+            Message::UpdateMACDFastPeriod(period) => handle_update_macd_fast_period(self, period),
+            Message::UpdateMACDSlowPeriod(period) => handle_update_macd_slow_period(self, period),
+            Message::UpdateMACDSignalPeriod(period) => handle_update_macd_signal_period(self, period),
+            Message::UpdateBollingerPeriod(period) => handle_update_bollinger_period(self, period),
+            Message::UpdateBollingerStdDev(std_dev) => handle_update_bollinger_std_dev(self, std_dev),
+            Message::UpdateMAPeriod(period) => handle_update_ma_period(self, period),
+            Message::StartResizeRightPanel(pos) => handle_start_resize_right_panel(self, pos),
+            Message::StartResizeBottomPanel(pos) => handle_start_resize_bottom_panel(self, pos),
+            Message::UpdateResizeRightPanel(pos) => handle_update_resize_right_panel(self, pos),
+            Message::UpdateResizeBottomPanel(pos) => handle_update_resize_bottom_panel(self, pos),
+            Message::EndResizeRightPanel => handle_end_resize_right_panel(self),
+            Message::EndResizeBottomPanel => handle_end_resize_bottom_panel(self),
+            Message::StartResizeVolumePanel(pos) => handle_start_resize_volume_panel(self, pos),
+            Message::UpdateResizeVolumePanel(pos) => handle_update_resize_volume_panel(self, pos),
+            Message::EndResizeVolumePanel => handle_end_resize_volume_panel(self),
+            Message::StartResizeRSIPanel(pos) => handle_start_resize_rsi_panel(self, pos),
+            Message::StartResizeMACDPanel(pos) => handle_start_resize_macd_panel(self, pos),
+            Message::UpdateResizeRSIPanel(pos) => handle_update_resize_rsi_panel(self, pos),
+            Message::UpdateResizeMACDPanel(pos) => handle_update_resize_macd_panel(self, pos),
+            Message::EndResizeRSIPanel => handle_end_resize_rsi_panel(self),
+            Message::EndResizeMACDPanel => handle_end_resize_macd_panel(self),
+            Message::SelectBottomSection(section) => handle_select_bottom_section(self, section),
+            Message::SelectRightSection(section) => handle_select_right_section(self, section),
+            Message::OpenSectionContextMenu(section, position) => {
+                handle_open_section_context_menu(self, section, position)
             }
-            Message::ToggleRSIPanel => {
-                self.panels.rsi.toggle_visibility();
-                // Sauvegarder l'état des panneaux après changement de visibilité
-                self.save_panel_state();
-                Task::none()
+            Message::CloseSectionContextMenu => handle_close_section_context_menu(self),
+            Message::MoveSectionToRightPanel(section) => {
+                handle_move_section_to_right_panel(self, section)
             }
-            Message::ToggleMACDPanel => {
-                self.panels.macd.toggle_visibility();
-                // Sauvegarder l'état des panneaux après changement de visibilité
-                self.save_panel_state();
-                Task::none()
+            Message::MoveSectionToBottomPanel(section) => {
+                handle_move_section_to_bottom_panel(self, section)
             }
-            Message::StartResizeRightPanel(pos) => {
-                self.panels.right.start_resize(pos);
-                Task::none()
-            }
-            Message::StartResizeBottomPanel(pos) => {
-                self.panels.bottom.start_resize(pos);
-                Task::none()
-            }
-            Message::UpdateResizeRightPanel(pos) => {
-                self.panels.right.update_resize(pos, true);
-                Task::none()
-            }
-            Message::UpdateResizeBottomPanel(pos) => {
-                self.panels.bottom.update_resize(pos, false);
-                Task::none()
-            }
-            Message::EndResizeRightPanel => {
-                self.panels.right.end_resize();
-                // Sauvegarder l'état des panneaux après redimensionnement
-                self.save_panel_state();
-                Task::none()
-            }
-            Message::EndResizeBottomPanel => {
-                self.panels.bottom.end_resize();
-                // Sauvegarder l'état des panneaux après redimensionnement
-                self.save_panel_state();
-                Task::none()
-            }
-            Message::StartResizeVolumePanel(pos) => {
-                self.panels.volume.start_resize(pos);
-                Task::none()
-            }
-            Message::UpdateResizeVolumePanel(pos) => {
-                self.panels.volume.update_resize(pos, false);
-                Task::none()
-            }
-            Message::EndResizeVolumePanel => {
-                self.panels.volume.end_resize();
-                // Sauvegarder l'état des panneaux après redimensionnement
-                self.save_panel_state();
-                Task::none()
-            }
-            Message::StartResizeRSIPanel(pos) => {
-                self.panels.rsi.start_resize(pos);
-                Task::none()
-            }
-            Message::StartResizeMACDPanel(pos) => {
-                self.panels.macd.start_resize(pos);
-                Task::none()
-            }
-            Message::UpdateResizeRSIPanel(pos) => {
-                self.panels.rsi.update_resize(pos, false);
-                Task::none()
-            }
-            Message::UpdateResizeMACDPanel(pos) => {
-                self.panels.macd.update_resize(pos, false);
-                Task::none()
-            }
-            Message::EndResizeRSIPanel => {
-                self.panels.rsi.end_resize();
-                // Sauvegarder l'état des panneaux après redimensionnement
-                self.save_panel_state();
-                Task::none()
-            }
-            Message::EndResizeMACDPanel => {
-                self.panels.macd.end_resize();
-                // Sauvegarder l'état des panneaux après redimensionnement
-                self.save_panel_state();
-                Task::none()
-            }
-            Message::StartDragSection(section) => {
-                let section_is_in_right = self.bottom_panel_sections.is_section_in_right_panel(section);
-                
-                // Démarrer un nouveau drag
-                self.dragging_section = Some(section);
-                self.drag_from_right_panel = section_is_in_right;
-                self.drag_over_right_panel = section_is_in_right;
-                
-                // Sélectionner la section dans le bon panneau
-                if section_is_in_right {
-                    self.bottom_panel_sections.set_active_right_section(section);
-                } else {
-                    self.bottom_panel_sections.set_active_section(section);
-                }
-                Task::none()
-            }
-            Message::UpdateDragPosition(position) => {
-                if self.dragging_section.is_some() {
-                    self.drag_position = Some(position);
-                }
-                Task::none()
-            }
-            Message::EndDragSection => {
-                if let Some(section) = self.dragging_section.take() {
-                    if self.drag_from_right_panel {
-                        // On drague depuis le panneau de droite
-                        // Toujours déplacer vers le bas (on a relâché sur le panneau du bas)
-                        self.bottom_panel_sections.move_section_to_bottom_panel(section);
-                        self.save_panel_state();
-                    } else {
-                        // On drague depuis le panneau du bas
-                        if self.drag_over_right_panel {
-                            // On est sur le panneau de droite → déplacer vers la droite
-                            self.bottom_panel_sections.move_section_to_right_panel(section);
-                            self.save_panel_state();
-                        }
-                        // Sinon, on reste sur le panneau du bas, ne rien faire
-                    }
-                }
-                self.drag_from_right_panel = false;
-                self.drag_over_right_panel = false;
-                self.drag_position = None;
-                Task::none()
-            }
-            Message::DragEnterRightPanel => {
-                self.drag_over_right_panel = true;
-                Task::none()
-            }
-            Message::DragExitRightPanel => {
-                self.drag_over_right_panel = false;
-                Task::none()
-            }
-            Message::SetRightPanelFocus(focused) => {
-                self.panels.right.set_focused(focused);
-                Task::none()
-            }
-            Message::SetBottomPanelFocus(focused) => {
-                self.panels.bottom.set_focused(focused);
-                Task::none()
-            }
-            Message::SetVolumePanelFocus(focused) => {
-                self.panels.volume.set_focused(focused);
-                Task::none()
-            }
-            Message::SetRSIPanelFocus(focused) => {
-                self.panels.rsi.set_focused(focused);
-                Task::none()
-            }
-            Message::SetMACDPanelFocus(focused) => {
-                self.panels.macd.set_focused(focused);
-                Task::none()
-            }
-            Message::ClearPanelFocus => {
-                self.panels.right.set_focused(false);
-                self.panels.bottom.set_focused(false);
-                self.panels.volume.set_focused(false);
-                self.panels.rsi.set_focused(false);
-                Task::none()
-            }
-            Message::ToggleAccountType => {
-                // Basculer entre démo et réel
-                let new_type = if self.account_type.is_demo() {
-                    crate::app::account_type::AccountType::Real
-                } else {
-                    crate::app::account_type::AccountType::Demo
-                };
-                self.account_type.set_account_type(new_type);
-                Task::none()
-            }
-            
-            Message::TestProviderConnection => {
-                self.provider_connection_testing = true;
-                self.provider_connection_status = None;
-                crate::app::realtime::test_provider_connection(self)
-            }
-            
+            Message::UpdateOrderQuantity(quantity) => handle_update_order_quantity(self, quantity),
+            Message::UpdateOrderType(order_type) => handle_update_order_type(self, order_type),
+            Message::UpdateLimitPrice(price) => handle_update_limit_price(self, price),
+            Message::UpdateTakeProfit(tp) => handle_update_take_profit(self, tp),
+            Message::UpdateStopLoss(sl) => handle_update_stop_loss(self, sl),
+            Message::ToggleTPSLEnabled => handle_toggle_tp_sl_enabled(self),
+            Message::PlaceBuyOrder => handle_place_buy_order(self),
+            Message::PlaceSellOrder => handle_place_sell_order(self),
+            Message::SetRightPanelFocus(focused) => handle_set_right_panel_focus(self, focused),
+            Message::SetBottomPanelFocus(focused) => handle_set_bottom_panel_focus(self, focused),
+            Message::SetVolumePanelFocus(focused) => handle_set_volume_panel_focus(self, focused),
+            Message::SetRSIPanelFocus(focused) => handle_set_rsi_panel_focus(self, focused),
+            Message::SetMACDPanelFocus(focused) => handle_set_macd_panel_focus(self, focused),
+            Message::ClearPanelFocus => handle_clear_panel_focus(self),
+            Message::ToggleAccountType => handle_toggle_account_type(self),
+            Message::TestProviderConnection => handle_test_provider_connection(self),
             Message::ProviderConnectionTestComplete(result) => {
-                self.provider_connection_testing = false;
-                self.provider_connection_status = Some(result.is_ok());
-                if let Err(e) = &result {
-                    eprintln!("❌ Test de connexion échoué: {}", e);
-                } else {
-                    println!("✅ Connexion au provider réussie");
-                }
-                Task::none()
+                handle_provider_connection_test_complete(self, result)
             }
+            Message::UpdateDragPosition(position) => handle_update_drag_position(self, position),
+            Message::EndDragSection => handle_end_drag_section(self),
         }
     }
     
@@ -815,14 +227,42 @@ impl ChartApp {
         crate::app::realtime::apply_realtime_updates(self, results)
     }
     
+    /// Met à jour les informations du compte basées sur les trades
+    fn update_account_info(&mut self) {
+        let symbol = self.chart_state.series_manager
+            .active_series()
+            .next()
+            .map(|s| s.symbol.clone())
+            .unwrap_or_else(|| String::from("UNKNOWN"));
+        
+        let current_price = self.chart_state.series_manager
+            .active_series()
+            .next()
+            .and_then(|s| s.data.last_candle().map(|c| c.close))
+            .unwrap_or(0.0);
+        
+        let trade_history = &self.trading_state.trade_history;
+        let total_margin_used = trade_history.total_margin_used(&symbol);
+        let total_unrealized_pnl = trade_history.total_unrealized_pnl(&symbol, current_price);
+        let total_realized_pnl = trade_history.total_realized_pnl();
+        let open_positions_count = trade_history.open_positions_count();
+        
+        self.account_info.update_from_trades(
+            total_margin_used,
+            total_unrealized_pnl,
+            total_realized_pnl,
+            open_positions_count,
+        );
+    }
+    
     /// Sauvegarde l'état complet des panneaux
     fn save_panel_state(&self) {
-        use crate::app::panel_persistence::PanelPersistenceState;
+        use crate::app::persistence::PanelPersistenceState;
         let state = PanelPersistenceState {
-            panels: self.panels.clone(),
-            active_bottom_section: self.bottom_panel_sections.active_bottom_section,
-            active_right_section: self.bottom_panel_sections.active_right_section,
-            right_panel_sections: self.bottom_panel_sections.right_panel_sections.clone(),
+            panels: self.ui.panels.clone(),
+            active_bottom_section: self.ui.bottom_panel_sections.active_bottom_section,
+            active_right_section: self.ui.bottom_panel_sections.active_right_section,
+            right_panel_sections: self.ui.bottom_panel_sections.right_panel_sections.clone(),
         };
         if let Err(e) = state.save_to_file("panel_state.json") {
             eprintln!("⚠️ Erreur sauvegarde état panneaux: {}", e);

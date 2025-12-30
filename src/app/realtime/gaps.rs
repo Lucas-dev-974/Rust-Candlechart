@@ -1,13 +1,9 @@
-//! Gestion du temps réel et de la complétion des données
+//! Détection et complétion des gaps
 //!
-//! Ce module gère toutes les opérations asynchrones liées à la mise à jour
-//! en temps réel des données et à la complétion des gaps.
-//!
-//! La logique pure (fonctions sans effets de bord) est extraite dans
-//! le module `realtime_utils` pour faciliter les tests.
+//! Ce module gère la détection des gaps dans les données
+//! et leur complétion asynchrone depuis le provider.
 
 use iced::Task;
-use std::collections::HashSet;
 use std::sync::Arc;
 use crate::finance_chart::{
     UpdateResult,
@@ -15,42 +11,13 @@ use crate::finance_chart::{
 };
 use crate::app::{
     messages::Message,
-    utils::{interval_to_seconds, calculate_expected_candles},
+    utils::utils::interval_to_seconds,
     app_state::ChartApp,
-    realtime_utils::{is_binance_format, extract_interval, compute_fetch_since, calculate_recent_gap_threshold, current_timestamp},
+    realtime::{
+        realtime_utils::{is_binance_format, extract_interval, compute_fetch_since, calculate_recent_gap_threshold, current_timestamp},
+        save::save_series_async,
+    },
 };
-
-/// Charge l'historique complet d'une série depuis Binance
-pub fn load_full_history(app: &mut ChartApp, series_id: SeriesId) -> Task<Message> {
-    // Vérifier si le format est compatible avec Binance
-    let series_name = if let Some(series) = app.chart_state.series_manager.get_series(&series_id) {
-        let name = series.full_name();
-        if !is_binance_format(&name) {
-            println!("  ⚠️  {}: Format incompatible avec Binance (attendu: SYMBOL_INTERVAL)", name);
-            return Task::none();
-        }
-        name
-    } else {
-        eprintln!("❌ Série {} introuvable", series_id.name);
-        return Task::none();
-    };
-    
-    println!("🔄 Chargement de l'historique complet pour {}...", series_name);
-    
-    // Arc::clone est très efficace (juste un compteur atomique)
-    let provider = Arc::clone(&app.binance_provider);
-    
-    // Créer une Task async pour télécharger l'historique complet
-    Task::perform(
-        async move {
-            let result = provider.fetch_full_history_async(&series_id)
-                .await
-                .map_err(|e| e.to_string());
-            (series_id, series_name, result)
-        },
-        |(series_id, series_name, result)| Message::LoadFullHistoryComplete(series_id, series_name, result),
-    )
-}
 
 /// Complète les données manquantes pour toutes les séries
 pub fn complete_missing_data(app: &mut ChartApp) -> Task<Message> {
@@ -253,7 +220,7 @@ pub fn complete_gaps(app: &mut ChartApp) -> Task<Message> {
 /// Applique les résultats de la complétion des gaps
 pub fn apply_complete_gaps_results(app: &mut ChartApp, results: Vec<(SeriesId, String, (i64, i64), Result<Vec<Candle>, String>)>) -> Task<Message> {
     let mut has_updates = false;
-    let mut updated_series: HashSet<SeriesId> = HashSet::new();
+    let mut updated_series: std::collections::HashSet<SeriesId> = std::collections::HashSet::new();
     
     for (series_id, series_name, (gap_start, gap_end), result) in results {
         match result {
@@ -297,251 +264,6 @@ pub fn apply_complete_gaps_results(app: &mut ChartApp, results: Vec<(SeriesId, S
     }
     println!("✅ Complétion des gaps terminée");
     Task::none()
-}
-
-/// Sauvegarde les séries de manière asynchrone
-pub fn save_series_async(app: &mut ChartApp, updated_series: HashSet<SeriesId>) -> Task<Message> {
-    println!("💾 Lancement de la sauvegarde asynchrone des séries mises à jour...");
-    
-    // Collecter les données à sauvegarder (cloner ce qui est nécessaire)
-    let save_requests: Vec<(String, String, String, Vec<Candle>, std::path::PathBuf)> = updated_series
-        .iter()
-        .filter_map(|series_id| {
-            app.chart_state.series_manager.get_series(series_id)
-                .map(|series| {
-                    // Utiliser la nouvelle structure: data/Binance/{Symbol}/{interval}.json
-                    // Utiliser le nouveau format de nommage: 1min.json pour 1m, 1month.json pour 1M
-                    use std::path::PathBuf;
-                    use crate::finance_chart::data_loader::interval_to_filename;
-                    let data_dir = PathBuf::from("data");
-                    let provider_dir = data_dir.join("Binance");
-                    let symbol_dir = provider_dir.join(&series.symbol);
-                    let file_name = interval_to_filename(&series.interval);
-                    let file_path = symbol_dir.join(&file_name);
-                    let file_path_str = file_path.to_string_lossy().to_string();
-                    
-                    let symbol = series.symbol.clone();
-                    let interval = series.interval.clone();
-                    // Cloner toutes les bougies
-                    let candles: Vec<Candle> = series.data.all_candles().to_vec();
-                    (file_path_str, symbol, interval, candles, file_path)
-                })
-        })
-        .collect();
-    
-    if save_requests.is_empty() {
-        return Task::none();
-    }
-    
-    // Lancer la sauvegarde dans un thread dédié
-    Task::perform(
-        async move {
-            use futures::future::join_all;
-            
-            // Créer les dossiers si nécessaire
-            use std::fs;
-            for (_, _, _, _, ref file_path) in &save_requests {
-                if let Some(parent) = file_path.parent() {
-                    let _ = fs::create_dir_all(parent);
-                }
-            }
-            
-            let futures: Vec<_> = save_requests
-                .into_iter()
-                .map(|(file_path, symbol, interval, candles, _file_path_buf)| {
-                    let file_path_clone = file_path.clone();
-                    async move {
-                        // Extraire le nom de la série depuis le chemin du fichier
-                        let series_name = std::path::Path::new(&file_path_clone)
-                            .file_stem()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or_else(|| {
-                                // Fallback: utiliser le nom du fichier sans extension
-                                file_path_clone
-                                    .trim_start_matches("data/")
-                                    .trim_end_matches(".json")
-                            })
-                            .to_string();
-                        
-                        // Cloner series_name pour l'utiliser après le spawn_blocking
-                        let series_name_for_result = series_name.clone();
-                        
-                        let result = tokio::task::spawn_blocking(move || {
-                            // Utiliser save_to_json en créant une SeriesData temporaire
-                            use crate::finance_chart::{core::{SeriesData, SeriesId, TimeSeries}, data_loader::save_to_json};
-                            
-                            // Utiliser le nom de la série (pas le chemin complet)
-                            let series_id = SeriesId::new(series_name);
-                            let timeseries = {
-                                let mut ts = TimeSeries::new();
-                                let mut errors = Vec::new();
-                                for (idx, candle) in candles.iter().enumerate() {
-                                    if let Err(e) = ts.push(candle.clone()) {
-                                        errors.push(format!("Bougie {}: {}", idx, e));
-                                    }
-                                }
-                                if !errors.is_empty() {
-                                    eprintln!("⚠️ Erreurs lors de la reconstruction du TimeSeries:");
-                                    for err in &errors {
-                                        eprintln!("  - {}", err);
-                                    }
-                                }
-                                ts
-                            };
-                            let series_data = SeriesData::new(series_id, symbol, interval, timeseries);
-                            
-                            save_to_json(&series_data, &file_path_clone)
-                                .map_err(|e| e.to_string())
-                        }).await;
-                        
-                        match result {
-                            Ok(Ok(())) => (series_name_for_result, Ok(())),
-                            Ok(Err(e)) => (series_name_for_result, Err(e)),
-                            Err(e) => (series_name_for_result, Err(format!("Erreur de thread: {}", e))),
-                        }
-                    }
-                })
-                .collect();
-            
-            let results = join_all(futures).await;
-            results
-        },
-        Message::SaveSeriesComplete,
-    )
-}
-
-/// Met à jour les données en temps réel pour les séries actives
-pub fn update_realtime(app: &mut ChartApp) -> Task<Message> {
-    if !app.realtime_enabled {
-        return Task::none();
-    }
-    
-    // Collecter les IDs des séries actives d'abord
-    let active_series: Vec<(SeriesId, String)> = app.chart_state.series_manager
-        .active_series()
-        .filter_map(|s| {
-            let name = s.full_name();
-            // Vérifier si le format est compatible avec Binance
-            if is_binance_format(&name) {
-                Some((s.id.clone(), name))
-            } else {
-                None
-            }
-        })
-        .collect();
-    
-    if active_series.is_empty() {
-        return Task::none();
-    }
-    
-    // Arc::clone est très efficace (juste un compteur atomique)
-    let provider = Arc::clone(&app.binance_provider);
-    
-    // Créer une Task async qui fait toutes les requêtes en parallèle
-    println!("🚀 Démarrage des requêtes async pour {} série(s)", active_series.len());
-    Task::perform(
-        async move {
-            use futures::future::join_all;
-            
-            // Créer un vecteur de futures pour toutes les requêtes
-            let futures: Vec<_> = active_series
-                .iter()
-                .map(|(series_id, series_name)| {
-                    let provider = Arc::clone(&provider);
-                    let series_id = series_id.clone();
-                    let series_name = series_name.clone();
-                    
-                    async move {
-                        let result = provider.get_latest_candle_async(&series_id)
-                            .await
-                            .map_err(|e| e.to_string());
-                        (series_id, series_name, result)
-                    }
-                })
-                .collect();
-            
-            // Exécuter toutes les requêtes en parallèle
-            let results = join_all(futures).await;
-            println!("✅ Toutes les requêtes async terminées");
-            results
-        },
-        Message::RealtimeUpdateComplete,
-    )
-}
-
-/// Applique les résultats des mises à jour en temps réel
-pub fn apply_realtime_updates(app: &mut ChartApp, results: Vec<(SeriesId, String, Result<Option<Candle>, String>)>) {
-    let mut has_updates = false;
-    let mut has_new_candles = false;
-    
-    for (series_id, series_name, result) in results {
-        match result {
-            Ok(Some(candle)) => {
-                match app.chart_state.update_candle(&series_id, candle) {
-                    UpdateResult::NewCandle => {
-                        println!("🔄 {}: Nouvelle bougie ajoutée", series_name);
-                        has_updates = true;
-                        has_new_candles = true;
-                    }
-                    UpdateResult::CandleUpdated => {
-                        // Bougie mise à jour - on marque aussi comme update pour le re-render
-                        has_updates = true;
-                    }
-                    UpdateResult::Error(e) => {
-                        eprintln!("❌ {}: Erreur mise à jour - {}", series_name, e);
-                    }
-                    _ => {}
-                }
-            }
-            Ok(None) => {
-                // Aucune nouvelle bougie
-            }
-            Err(e) => {
-                eprintln!("❌ {}: Erreur récupération - {}", series_name, e);
-            }
-        }
-    }
-    
-    // Ajuster le viewport si nécessaire (si auto-scroll activé et nouvelles bougies)
-    if has_new_candles && app.chart_style.auto_scroll_enabled {
-        app.chart_state.auto_scroll_to_latest();
-    }
-    
-    // Forcer le re-render en incrémentant le compteur de version
-    // Note: Cette variable pourrait être utilisée dans le rendu du canvas pour forcer
-    // un re-render explicite si nécessaire. Actuellement, Iced détecte automatiquement
-    // les changements d'état, mais cette variable reste disponible pour un usage futur.
-    if has_updates {
-        app.render_version = app.render_version.wrapping_add(1);
-        // Mettre à jour le cache MACD centralisé après les mises à jour temps réel
-        let _ = app.chart_state.compute_and_store_macd();
-    }
-}
-
-/// Teste la connexion au provider actif
-pub fn test_provider_connection(app: &ChartApp) -> Task<Message> {
-    let provider = Arc::clone(&app.binance_provider);
-    let has_token = app.provider_config
-        .active_config()
-        .map(|c| c.api_token.is_some())
-        .unwrap_or(false);
-    
-    println!("🔍 Test de connexion au provider...");
-    
-    Task::perform(
-        async move {
-            // Si un token est configuré, tester l'authentification
-            // Sinon, tester juste la connexion de base
-            if has_token {
-                provider.test_authenticated_connection().await
-                    .map_err(|e| e.to_string())
-            } else {
-                provider.test_connection().await
-                    .map_err(|e| e.to_string())
-            }
-        },
-        Message::ProviderConnectionTestComplete,
-    )
 }
 
 /// Vérifie rapidement si une série a des gaps à combler (sans appel API)
@@ -689,7 +411,7 @@ pub fn auto_complete_series(app: &mut ChartApp, series_id: SeriesId) -> Task<Mes
             
             // Estimation du nombre total de bougies (utiliser l'interval_str déjà calculé)
             let estimated: usize = all_gaps.iter()
-                .map(|(s, e)| calculate_expected_candles(&interval_str, e - s))
+                .map(|(s, e)| crate::app::utils::utils::calculate_expected_candles(&interval_str, e - s))
                 .sum();
             (series_id_clone, all_gaps, estimated)
         },
@@ -704,90 +426,5 @@ pub fn auto_complete_series(app: &mut ChartApp, series_id: SeriesId) -> Task<Mes
     )
 }
 
-/// Télécharge un batch de données et met à jour le graphique
-/// Télécharge du plus récent vers le plus ancien (target_end -> current_start)
-/// 
-/// Note: fetch_candles_backwards_async ne spécifie pas de startTime, donc elle peut
-/// retourner des bougies avant gap_start. On filtre ensuite pour ne garder que celles
-/// dans le gap. Pour les très grands gaps, on pourrait utiliser fetch_all_candles_in_range_async
-/// à la place pour plus d'efficacité.
-pub fn download_batch(app: &mut ChartApp, series_id: &SeriesId) -> Task<Message> {
-    let progress = match app.download_manager.get_progress(series_id) {
-        Some(p) => p.clone(),
-        None => {
-            println!("  ⚠️ Pas de progress pour {}, arrêt du téléchargement", series_id.name);
-            return Task::none();
-        }
-    };
-    
-    let provider = Arc::clone(&app.binance_provider);
-    let series_id_clone = progress.series_id.clone();
-    let gap_start = progress.current_start;  // timestamp le plus ancien du gap (objectif)
-    let current_end = progress.target_end;     // timestamp actuel (on descend vers gap_start)
-    let current_count = progress.current_count;
-    let estimated_total = progress.estimated_total;
-    
-    println!("  🔄 Batch: de {} vers {} (objectif >= {})", current_end, gap_start, gap_start);
-    
-    Task::perform(
-        async move {
-            // Petite pause pour éviter de surcharger l'API
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-            
-            // Télécharger les 1000 bougies les plus récentes avant current_end
-            // Note: Cette fonction ne spécifie pas startTime, donc peut retourner des bougies
-            // avant gap_start. On filtre ensuite.
-            match provider.fetch_candles_backwards_async(&series_id_clone, gap_start, current_end).await {
-                Ok(all_candles) => {
-                    let raw_count = all_candles.len();
-                    
-                    if raw_count == 0 {
-                        println!("    ⚠️ Batch vide, gap terminé");
-                        return (series_id_clone.clone(), Vec::new(), current_count, estimated_total, gap_start);
-                    }
-                    
-                    // L'API retourne les bougies triées par timestamp croissant (du plus ancien au plus récent)
-                    // La première bougie est donc la plus ancienne du batch
-                    let oldest_in_batch = all_candles.first().map(|c| c.timestamp).unwrap_or(current_end);
-                    
-                    // Filtrer pour ne garder que les bougies dans le gap (>= gap_start et <= current_end)
-                    let filtered_candles: Vec<_> = all_candles
-                        .into_iter()
-                        .filter(|c| c.timestamp >= gap_start && c.timestamp <= current_end)
-                        .collect();
-                    
-                    let filtered_count = filtered_candles.len();
-                    let new_count = current_count + filtered_count;
-                    
-                    if filtered_count < raw_count {
-                        println!("    📦 Batch: {} brutes, {} dans le gap (filtrage: {} exclues, oldest={})", 
-                            raw_count, filtered_count, raw_count - filtered_count, oldest_in_batch);
-                    } else {
-                        println!("    📦 Batch: {} bougies dans le gap (oldest={})", 
-                            filtered_count, oldest_in_batch);
-                    }
-                    
-                    // Calculer le prochain end pour continuer le téléchargement
-                    let next_end = if oldest_in_batch <= gap_start || raw_count < 1000 {
-                        // On a atteint ou dépassé le début du gap, ou l'API n'a plus de données
-                        println!("    ✅ Gap terminé (oldest={}, gap_start={})", oldest_in_batch, gap_start);
-                        gap_start
-                    } else {
-                        // Continuer vers le passé: utiliser la bougie la plus ancienne du batch - 1
-                        oldest_in_batch - 1
-                    };
-                    
-                    (series_id_clone.clone(), filtered_candles, new_count, estimated_total, next_end)
-                }
-                Err(e) => {
-                    eprintln!("  ❌ Erreur téléchargement: {}", e);
-                    (series_id_clone.clone(), Vec::new(), current_count, estimated_total, gap_start)
-                }
-            }
-        },
-        move |(series_id, candles, count, estimated, next_end)| {
-            Message::BatchDownloadResult(series_id, candles, count, estimated, next_end)
-        },
-    )
-}
+
 

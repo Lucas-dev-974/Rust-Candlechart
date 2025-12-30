@@ -34,12 +34,11 @@ pub mod indicators;
 
 // Ré-exports principaux
 pub use state::ChartState;
-pub use widget::chart;
+pub use widget::{chart, chart_with_trades, chart_with_trading, chart_with_trades_and_trading};
 pub use data_loader::{load_from_json, load_all_from_directory, is_directory_empty, save_to_json};
 pub use series_select::series_select_box;
 pub use settings::{ChartStyle, SettingsState};
 pub use messages::{ChartMessage, YAxisMessage, XAxisMessage, ToolsPanelMessage, SeriesPanelMessage};
-pub use scale::VolumeScale;
 
 // Ré-exports depuis axis/
 pub use axis::{x_axis, y_axis, X_AXIS_HEIGHT};

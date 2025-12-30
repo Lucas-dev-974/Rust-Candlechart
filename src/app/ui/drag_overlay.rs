@@ -3,7 +3,7 @@
 use iced::widget::canvas::{Canvas, Frame, Geometry, Program, Path, Stroke, Text};
 use iced::{Color, Element, Event, Length, Point, Rectangle, mouse, Pixels};
 use iced::mouse::Cursor;
-use crate::app::bottom_panel_sections::BottomPanelSection;
+use crate::app::state::BottomPanelSection;
 
 /// Programme canvas pour l'overlay de drag
 pub struct DragOverlay {

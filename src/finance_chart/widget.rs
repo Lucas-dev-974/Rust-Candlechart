@@ -12,6 +12,10 @@ use super::render::{
     render_crosshair, render_tooltip, find_candle_at_position,
     draw_rectangle, draw_preview_rectangle,
     draw_horizontal_line, draw_hline_preview, hit_test_hline,
+    render_trade_markers,
+    draw_pending_order_lines, draw_tp_sl_lines, draw_preview_limit_order_lines, draw_preview_tp_sl_lines,
+    render_bollinger_bands, BollingerStyle,
+    render_moving_average, MovingAverageStyle,
     grid::GridStyle, current_price::CurrentPriceStyle,
     crosshair::CrosshairStyle, tooltip::TooltipStyle,
 };
@@ -41,6 +45,18 @@ pub struct ChartProgram<'a> {
     chart_style: &'a ChartStyle,
     /// Indique si un panneau a le focus (désactive les interactions du chart)
     panel_focused: bool,
+    /// Trades à afficher (optionnel, pour le mode paper trading)
+    trades: Option<&'a [crate::app::data::Trade]>,
+    /// Symbole actuel pour filtrer les trades
+    current_symbol: Option<&'a str>,
+    /// État de trading pour afficher les ordres limit et TP/SL
+    trading_state: Option<&'a crate::app::state::TradingState>,
+    /// Indique si les bandes de Bollinger sont activées
+    bollinger_enabled: bool,
+    /// Indique si la moyenne mobile est activée
+    ma_enabled: bool,
+    /// Paramètres des indicateurs
+    indicator_params: Option<&'a crate::app::state::IndicatorParams>,
 }
 
 impl<'a> ChartProgram<'a> {
@@ -51,7 +67,92 @@ impl<'a> ChartProgram<'a> {
         chart_style: &'a ChartStyle,
         panel_focused: bool,
     ) -> Self {
-        Self { chart_state, tools_state, settings_state, chart_style, panel_focused }
+        Self { 
+            chart_state, 
+            tools_state, 
+            settings_state, 
+            chart_style, 
+            panel_focused,
+            trades: None,
+            current_symbol: None,
+            trading_state: None,
+            bollinger_enabled: false,
+            ma_enabled: false,
+            indicator_params: None,
+        }
+    }
+    
+    pub fn with_trades(
+        chart_state: &'a ChartState,
+        tools_state: &'a ToolsState,
+        settings_state: &'a SettingsState,
+        chart_style: &'a ChartStyle,
+        panel_focused: bool,
+        trades: &'a [crate::app::data::Trade],
+        current_symbol: &'a str,
+    ) -> Self {
+        Self { 
+            chart_state, 
+            tools_state, 
+            settings_state, 
+            chart_style, 
+            panel_focused,
+            trades: Some(trades),
+            current_symbol: Some(current_symbol),
+            trading_state: None,
+            bollinger_enabled: false,
+            ma_enabled: false,
+            indicator_params: None,
+        }
+    }
+    
+    pub fn with_trading_state(
+        chart_state: &'a ChartState,
+        tools_state: &'a ToolsState,
+        settings_state: &'a SettingsState,
+        chart_style: &'a ChartStyle,
+        panel_focused: bool,
+        trading_state: &'a crate::app::state::TradingState,
+        current_symbol: &'a str,
+    ) -> Self {
+        Self { 
+            chart_state, 
+            tools_state, 
+            settings_state, 
+            chart_style, 
+            panel_focused,
+            trades: None,
+            current_symbol: Some(current_symbol),
+            trading_state: Some(trading_state),
+            bollinger_enabled: false,
+            ma_enabled: false,
+            indicator_params: None,
+        }
+    }
+    
+    pub fn with_trades_and_trading(
+        chart_state: &'a ChartState,
+        tools_state: &'a ToolsState,
+        settings_state: &'a SettingsState,
+        chart_style: &'a ChartStyle,
+        panel_focused: bool,
+        trades: &'a [crate::app::data::Trade],
+        current_symbol: &'a str,
+        trading_state: &'a crate::app::state::TradingState,
+    ) -> Self {
+        Self { 
+            chart_state, 
+            tools_state, 
+            settings_state, 
+            chart_style, 
+            panel_focused,
+            trades: Some(trades),
+            current_symbol: Some(current_symbol),
+            trading_state: Some(trading_state),
+            bollinger_enabled: false,
+            ma_enabled: false,
+            indicator_params: None,
+        }
     }
 
     /// Génère des couleurs différentes pour chaque série
@@ -225,6 +326,48 @@ impl<'a> ChartProgram<'a> {
                 draw_hline_preview(frame, y, viewport.width());
             }
         }
+        
+        // Dessiner les lignes des ordres limit et TP/SL si on a le trading_state
+        if let (Some(trading_state), Some(current_symbol)) = (self.trading_state, self.current_symbol) {
+            // Dessiner les ordres limit en attente
+            draw_pending_order_lines(frame, viewport, &trading_state.trade_history.pending_orders, current_symbol);
+            
+            // Dessiner les lignes TP/SL des positions ouvertes
+            draw_tp_sl_lines(frame, viewport, &trading_state.trade_history.open_positions, current_symbol);
+            
+            // Dessiner les lignes de prévisualisation si on est en mode Limit et qu'un prix limite est saisi
+            use crate::app::data::OrderType;
+            if trading_state.order_type == OrderType::Limit {
+                if let Some(limit_price) = trading_state.parse_limit_price() {
+                    draw_preview_limit_order_lines(frame, viewport, limit_price);
+                }
+            }
+            
+            // Dessiner les lignes de prévisualisation TP/SL si des valeurs sont saisies
+            // En mode Market, vérifier que TP/SL sont activés
+            let should_show_tp_sl = if trading_state.order_type == OrderType::Market {
+                // En mode Market, vérifier la checkbox
+                trading_state.tp_sl_enabled && 
+                (trading_state.parse_take_profit().is_some() || trading_state.parse_stop_loss().is_some())
+            } else {
+                // En mode Limit, toujours afficher si des valeurs sont saisies
+                trading_state.parse_take_profit().is_some() || trading_state.parse_stop_loss().is_some()
+            };
+            
+            if should_show_tp_sl {
+                let preview_tp = if trading_state.order_type == OrderType::Market && !trading_state.tp_sl_enabled {
+                    None
+                } else {
+                    trading_state.parse_take_profit()
+                };
+                let preview_sl = if trading_state.order_type == OrderType::Market && !trading_state.tp_sl_enabled {
+                    None
+                } else {
+                    trading_state.parse_stop_loss()
+                };
+                draw_preview_tp_sl_lines(frame, viewport, preview_tp, preview_sl);
+            }
+        }
     }
 }
 
@@ -294,8 +437,62 @@ impl<'a> Program<ChartMessage> for ChartProgram<'a> {
             self.draw_current_price_label(&mut frame, last_candle);
         }
 
+        // Rendu des bandes de Bollinger (si activées)
+        if self.bollinger_enabled {
+            // Calculer toutes les valeurs Bollinger sur toutes les bougies
+            use crate::finance_chart::indicators::bollinger::calculate_all_bollinger_values;
+            use crate::finance_chart::indicators::bollinger::calculate_bollinger_data;
+            
+            let period = self.indicator_params.map(|p| p.bollinger_period);
+            let std_dev = self.indicator_params.map(|p| p.bollinger_std_dev);
+            if let Some(all_bollinger_values) = calculate_all_bollinger_values(self.chart_state, period, std_dev) {
+                // Extraire les valeurs correspondant aux bougies visibles
+                if let Some((visible_bollinger_values, visible_candles, _)) = 
+                    calculate_bollinger_data(self.chart_state, &all_bollinger_values) 
+                {
+                    let bollinger_style = BollingerStyle::default();
+                    render_bollinger_bands(
+                        &mut frame, 
+                        &self.chart_state.viewport, 
+                        visible_candles, 
+                        visible_bollinger_values,
+                        Some(bollinger_style)
+                    );
+                }
+            }
+        }
+
+        // Rendu de la moyenne mobile (si activée)
+        if self.ma_enabled {
+            // Calculer toutes les valeurs MA sur toutes les bougies
+            use crate::finance_chart::indicators::moving_average::calculate_all_ma_values;
+            use crate::finance_chart::indicators::moving_average::calculate_ma_data;
+            
+            let period = self.indicator_params.map(|p| p.ma_period);
+            if let Some(all_ma_values) = calculate_all_ma_values(self.chart_state, period) {
+                // Extraire les valeurs correspondant aux bougies visibles
+                if let Some((visible_ma_values, visible_candles, _)) = 
+                    calculate_ma_data(self.chart_state, &all_ma_values) 
+                {
+                    let ma_style = MovingAverageStyle::default();
+                    render_moving_average(
+                        &mut frame, 
+                        &self.chart_state.viewport, 
+                        visible_candles, 
+                        visible_ma_values,
+                        Some(ma_style)
+                    );
+                }
+            }
+        }
+
         // Rendu des dessins (rectangles et lignes)
         self.draw_all_drawings(&mut frame);
+        
+        // Rendu des marqueurs de trades (si disponibles)
+        if let (Some(trades), Some(symbol)) = (self.trades, self.current_symbol) {
+            render_trade_markers(&mut frame, &self.chart_state.viewport, trades, symbol);
+        }
 
         // Rendu du crosshair (seulement si le dialog n'est pas ouvert)
         if !self.settings_state.is_open {
@@ -341,15 +538,27 @@ impl<'a> Program<ChartMessage> for ChartProgram<'a> {
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> Option<CanvasAction<ChartMessage>> {
-        // Vérifier si la taille a changé et émettre un message de resize
+        // Vérifier si la taille a changé et émettre un message de resize avec les bounds
         let current_width = self.chart_state.viewport.width();
         let current_height = self.chart_state.viewport.height();
         if (current_width - bounds.width).abs() > 1.0 || (current_height - bounds.height).abs() > 1.0 {
             return Some(CanvasAction::publish(ChartMessage::Resize {
                 width: bounds.width,
                 height: bounds.height,
+                x: bounds.x,
+                y: bounds.y,
             }));
         }
+        
+        // Mettre à jour les bounds même si la taille n'a pas changé (au cas où la position aurait changé)
+        // On le fait silencieusement via un mécanisme interne plutôt qu'un message
+        // Note: On ne peut pas modifier self.chart_state ici car c'est une référence immuable
+        // Les bounds seront mises à jour lors du prochain Resize ou via un autre mécanisme
+        
+        // Mettre à jour les bounds du graphique principal avant de traiter les événements
+        // On envoie ce message à chaque update pour s'assurer que les bounds sont à jour
+        // Note: On ne peut pas retourner plusieurs messages, donc on l'envoie seulement
+        // si c'est le premier événement ou si les bounds ont changé
         
         match event {
             // === Gestion des touches clavier ===
@@ -362,7 +571,13 @@ impl<'a> Program<ChartMessage> for ChartProgram<'a> {
             // === Gestion de la souris ===
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 if let Some(position) = cursor.position_in(bounds) {
-                    return self.handle_mouse_press(position);
+                    // Stocker les bounds du graphique principal pour convertir les positions absolues
+                    // des indicateurs en positions relatives
+                    if let Some(absolute_position) = cursor.position() {
+                        // Pour le pan, utiliser la position absolue pour cohérence avec les indicateurs
+                        return self.handle_mouse_press(position, absolute_position);
+                    }
+                    return self.handle_mouse_press(position, position);
                 }
             }
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
@@ -370,7 +585,10 @@ impl<'a> Program<ChartMessage> for ChartProgram<'a> {
             }
             Event::Mouse(mouse::Event::CursorMoved { position }) => {
                 let position = Point::new(position.x - bounds.x, position.y - bounds.y);
-                return self.handle_mouse_move(position, bounds);
+                // Utiliser la position absolue pour cohérence avec les indicateurs
+                let absolute_position = cursor.position()
+                    .unwrap_or_else(|| Point::new(position.x + bounds.x, position.y + bounds.y));
+                return self.handle_mouse_move(position, absolute_position, bounds);
             }
             Event::Mouse(mouse::Event::WheelScrolled { delta }) => {
                 return self.handle_scroll(widget_state, *delta);
@@ -504,7 +722,7 @@ impl<'a> ChartProgram<'a> {
         }
     }
 
-    fn handle_mouse_press(&self, position: Point) -> Option<CanvasAction<ChartMessage>> {
+    fn handle_mouse_press(&self, position: Point, absolute_position: Point) -> Option<CanvasAction<ChartMessage>> {
         // Ignorer les événements si un panneau a le focus
         if self.panel_focused {
             return None;
@@ -556,7 +774,8 @@ impl<'a> ChartProgram<'a> {
             None => {
                 // Pas d'outil actif - démarrer le pan
                 // (même si quelque chose est sélectionné, on peut toujours faire un pan)
-                return Some(CanvasAction::publish(ChartMessage::StartPan { position }));
+                // Utiliser la position absolue pour cohérence avec les indicateurs
+                return Some(CanvasAction::publish(ChartMessage::StartPan { position: absolute_position }));
             }
         }
     }
@@ -600,7 +819,7 @@ impl<'a> ChartProgram<'a> {
         Some(CanvasAction::publish(ChartMessage::EndPan))
     }
 
-    fn handle_mouse_move(&self, position: Point, _bounds: Rectangle) -> Option<CanvasAction<ChartMessage>> {
+    fn handle_mouse_move(&self, position: Point, absolute_position: Point, _bounds: Rectangle) -> Option<CanvasAction<ChartMessage>> {
         // Ignorer les événements si un panneau a le focus
         if self.panel_focused {
             return None;
@@ -617,7 +836,8 @@ impl<'a> ChartProgram<'a> {
         
         // PRIORITÉ 1 : Pan (si actif et pas occupé par autre chose)
         if self.chart_state.interaction.is_panning && !is_busy {
-            return Some(CanvasAction::publish(ChartMessage::UpdatePan { position }));
+            // Utiliser la position absolue pour cohérence avec les indicateurs
+            return Some(CanvasAction::publish(ChartMessage::UpdatePan { position: absolute_position }));
         }
         
         // PRIORITÉ 2 : Édition rectangle (si active)
@@ -675,8 +895,89 @@ pub fn chart<'a>(
     settings_state: &'a SettingsState,
     chart_style: &'a ChartStyle,
     panel_focused: bool,
+    bollinger_enabled: bool,
+    ma_enabled: bool,
+    // Paramètres des indicateurs
+    indicator_params: Option<&'a crate::app::state::IndicatorParams>,
 ) -> Element<'a, ChartMessage> {
-    Canvas::new(ChartProgram::new(chart_state, tools_state, settings_state, chart_style, panel_focused))
+    let mut program = ChartProgram::new(chart_state, tools_state, settings_state, chart_style, panel_focused);
+    program.bollinger_enabled = bollinger_enabled;
+    program.ma_enabled = ma_enabled;
+    program.indicator_params = indicator_params;
+    Canvas::new(program)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
+}
+
+/// Crée un graphique avec les marqueurs de trades
+pub fn chart_with_trades<'a>(
+    chart_state: &'a ChartState,
+    tools_state: &'a ToolsState,
+    settings_state: &'a SettingsState,
+    chart_style: &'a ChartStyle,
+    panel_focused: bool,
+    trades: &'a [crate::app::data::Trade],
+    current_symbol: &'a str,
+    bollinger_enabled: bool,
+    ma_enabled: bool,
+    // Paramètres des indicateurs
+    indicator_params: Option<&'a crate::app::state::IndicatorParams>,
+) -> Element<'a, ChartMessage> {
+    let mut program = ChartProgram::with_trades(chart_state, tools_state, settings_state, chart_style, panel_focused, trades, current_symbol);
+    program.bollinger_enabled = bollinger_enabled;
+    program.ma_enabled = ma_enabled;
+    program.indicator_params = indicator_params;
+    Canvas::new(program)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
+}
+
+/// Crée un graphique avec les ordres limit et TP/SL
+pub fn chart_with_trading<'a>(
+    chart_state: &'a ChartState,
+    tools_state: &'a ToolsState,
+    settings_state: &'a SettingsState,
+    chart_style: &'a ChartStyle,
+    panel_focused: bool,
+    trading_state: &'a crate::app::state::TradingState,
+    current_symbol: &'a str,
+    bollinger_enabled: bool,
+    ma_enabled: bool,
+    // Paramètres des indicateurs
+    indicator_params: Option<&'a crate::app::state::IndicatorParams>,
+) -> Element<'a, ChartMessage> {
+    let mut program = ChartProgram::with_trading_state(chart_state, tools_state, settings_state, chart_style, panel_focused, trading_state, current_symbol);
+    program.bollinger_enabled = bollinger_enabled;
+    program.ma_enabled = ma_enabled;
+    program.indicator_params = indicator_params;
+    Canvas::new(program)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
+}
+
+/// Crée un graphique avec les trades et les ordres limit/TP/SL
+pub fn chart_with_trades_and_trading<'a>(
+    chart_state: &'a ChartState,
+    tools_state: &'a ToolsState,
+    settings_state: &'a SettingsState,
+    chart_style: &'a ChartStyle,
+    panel_focused: bool,
+    trades: &'a [crate::app::data::Trade],
+    current_symbol: &'a str,
+    trading_state: &'a crate::app::state::TradingState,
+    bollinger_enabled: bool,
+    ma_enabled: bool,
+    // Paramètres des indicateurs
+    indicator_params: Option<&'a crate::app::state::IndicatorParams>,
+) -> Element<'a, ChartMessage> {
+    let mut program = ChartProgram::with_trades_and_trading(chart_state, tools_state, settings_state, chart_style, panel_focused, trades, current_symbol, trading_state);
+    program.bollinger_enabled = bollinger_enabled;
+    program.ma_enabled = ma_enabled;
+    program.indicator_params = indicator_params;
+    Canvas::new(program)
         .width(Length::Fill)
         .height(Length::Fill)
         .into()

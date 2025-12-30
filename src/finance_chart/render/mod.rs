@@ -1,18 +1,26 @@
 pub mod bar_sizing;
+pub mod bollinger;
 pub mod candlestick;
 pub mod crosshair;
 pub mod current_price;
 pub mod grid;
 pub mod horizontal_line;
+pub mod moving_average;
+pub mod order_lines;
 pub mod rectangles;
 pub mod tooltip;
+pub mod trade_markers;
 pub mod utils;
 
 pub use bar_sizing::{calculate_bar_width, calculate_candle_period};
+pub use bollinger::{render_bollinger_bands, BollingerStyle};
+pub use moving_average::{render_moving_average, MovingAverageStyle};
 pub use candlestick::render_candlesticks;
 pub use crosshair::{render_crosshair, render_volume_crosshair, render_rsi_crosshair, render_macd_crosshair};
 pub use current_price::render_current_price_line;
 pub use grid::{render_grid, calculate_nice_step, calculate_nice_time_step, format_time};
 pub use horizontal_line::{draw_horizontal_line, draw_hline_preview, hit_test_hline};
+pub use order_lines::{draw_pending_order_lines, draw_tp_sl_lines, draw_preview_limit_order_lines, draw_preview_tp_sl_lines};
 pub use rectangles::{draw_rectangle, draw_preview_rectangle};
 pub use tooltip::{render_tooltip, find_candle_at_position};
+pub use trade_markers::render_trade_markers;

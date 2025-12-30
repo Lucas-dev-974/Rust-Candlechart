@@ -3,7 +3,7 @@
 //! Ce module contient la logique pure (fonctions sans effets de bord)
 //! extraite de realtime.rs pour faciliter les tests et la réutilisation.
 
-use crate::app::utils::calculate_candles_back_timestamp;
+use crate::app::utils::utils::calculate_candles_back_timestamp;
 
 /// Vérifie si le nom de série est au format Binance (SYMBOL_INTERVAL)
 /// 

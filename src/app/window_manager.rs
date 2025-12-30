@@ -16,7 +16,7 @@ pub enum WindowType {
 pub struct WindowManager {
     main_window_id: Option<window::Id>,
     settings_window_id: Option<window::Id>,
-    provider_config_window_id: Option<window::Id>,
+    provider_config_window_id: Option<window::Id>,  
     downloads_window_id: Option<window::Id>,
 }
 

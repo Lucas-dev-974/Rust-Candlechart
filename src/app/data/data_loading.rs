@@ -8,7 +8,7 @@ use crate::finance_chart::{
     load_all_from_directory, load_from_json, is_directory_empty, save_to_json,
     BinanceProvider, core::{SeriesId, TimeSeries, SeriesData}
 };
-use crate::app::{constants::DATA_FILE, messages::Message};
+use crate::app::{utils::constants::DATA_FILE, messages::Message};
 use std::sync::Arc;
 
 /// Intervalles disponibles pour Binance

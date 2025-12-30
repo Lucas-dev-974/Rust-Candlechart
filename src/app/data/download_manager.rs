@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 use crate::finance_chart::core::SeriesId;
-use super::app_state::DownloadProgress;
+use crate::app::app_state::DownloadProgress;
 
 /// Gestionnaire de téléchargements multiples
 #[derive(Debug, Clone)]

@@ -18,6 +18,8 @@ pub enum BottomPanelSection {
     Orders,
     /// Section pour le compte
     Account,
+    /// Section pour l'historique des trades
+    TradeHistory,
 }
 
 impl BottomPanelSection {
@@ -29,6 +31,7 @@ impl BottomPanelSection {
             Self::Indicators,
             Self::Orders,
             Self::Account,
+            Self::TradeHistory,
         ]
     }
     
@@ -40,6 +43,7 @@ impl BottomPanelSection {
             Self::Indicators => "Indicateurs",
             Self::Orders => "Ordres",
             Self::Account => "Compte",
+            Self::TradeHistory => "Historique",
         }
     }
 }
@@ -59,8 +63,11 @@ impl Default for BottomPanelSectionsState {
     fn default() -> Self {
         Self {
             active_bottom_section: BottomPanelSection::Overview,
-            active_right_section: None,
-            right_panel_sections: Vec::new(),
+            active_right_section: Some(BottomPanelSection::Orders),
+            right_panel_sections: vec![
+                BottomPanelSection::Orders,
+                BottomPanelSection::TradeHistory,
+            ],
         }
     }
 }
@@ -94,39 +101,6 @@ impl BottomPanelSectionsState {
         }
     }
     
-    /// Déplace une section vers le panneau de droite
-    pub fn move_section_to_right_panel(&mut self, section: BottomPanelSection) {
-        if !self.right_panel_sections.contains(&section) {
-            self.right_panel_sections.push(section);
-            
-            // Activer cette section dans le panneau de droite
-            self.active_right_section = Some(section);
-            
-            // Si la section déplacée était active dans le panneau du bas, changer la section active
-            if self.active_bottom_section == section {
-                // Trouver une autre section à activer
-                if let Some(first_other) = self.bottom_panel_sections().first().cloned() {
-                    self.active_bottom_section = first_other;
-                }
-            }
-        }
-    }
-    
-    /// Retourne une section du panneau de droite vers le panneau du bas
-    pub fn move_section_to_bottom_panel(&mut self, section: BottomPanelSection) {
-        if let Some(pos) = self.right_panel_sections.iter().position(|s| *s == section) {
-            self.right_panel_sections.remove(pos);
-            
-            // Activer cette section dans le panneau du bas
-            self.active_bottom_section = section;
-            
-            // Mettre à jour la section active du panneau de droite
-            if self.active_right_section == Some(section) {
-                self.active_right_section = self.right_panel_sections.first().cloned();
-            }
-        }
-    }
-    
     /// Vérifie si une section est dans le panneau de droite
     pub fn is_section_in_right_panel(&self, section: BottomPanelSection) -> bool {
         self.right_panel_sections.contains(&section)
@@ -135,6 +109,44 @@ impl BottomPanelSectionsState {
     /// Vérifie si le panneau de droite a des sections
     pub fn has_right_panel_sections(&self) -> bool {
         !self.right_panel_sections.is_empty()
+    }
+    
+    /// Déplace une section vers le panneau de droite
+    pub fn move_to_right_panel(&mut self, section: BottomPanelSection) {
+        // Retirer de la liste du panneau de droite si déjà présent
+        self.right_panel_sections.retain(|&s| s != section);
+        // Ajouter à la liste du panneau de droite
+        self.right_panel_sections.push(section);
+        
+        // Si c'était la section active du panneau du bas, changer l'active
+        if self.active_bottom_section == section {
+            // Trouver une autre section pour le panneau du bas
+            if let Some(&first_bottom) = self.bottom_panel_sections().first() {
+                self.active_bottom_section = first_bottom;
+            }
+        }
+        
+        // Activer cette section dans le panneau de droite
+        self.active_right_section = Some(section);
+    }
+    
+    /// Déplace une section vers le panneau du bas
+    pub fn move_to_bottom_panel(&mut self, section: BottomPanelSection) {
+        // Retirer du panneau de droite
+        self.right_panel_sections.retain(|&s| s != section);
+        
+        // Si c'était la section active du panneau de droite, changer l'active
+        if self.active_right_section == Some(section) {
+            // Trouver une autre section pour le panneau de droite
+            if let Some(&first_right) = self.right_panel_sections.first() {
+                self.active_right_section = Some(first_right);
+            } else {
+                self.active_right_section = None;
+            }
+        }
+        
+        // Activer cette section dans le panneau du bas
+        self.active_bottom_section = section;
     }
 }
 

@@ -43,7 +43,7 @@ impl<'a> MACDProgram<'a> {
     }
 }
 
-impl<'a, Message> Program<Message> for MACDProgram<'a> {
+impl<'a> Program<crate::app::messages::Message> for MACDProgram<'a> {
     type State = ();
 
     fn draw(
@@ -275,6 +275,7 @@ impl<'a, Message> Program<Message> for MACDProgram<'a> {
             mouse_position_in_chart.map(|p| p.y),
             &|y| scaling.y_to_macd(y),
             Some(crosshair_style),
+            mouse_position_in_chart.map(|p| p.x),
         );
 
         vec![frame.into_geometry()]
@@ -283,10 +284,54 @@ impl<'a, Message> Program<Message> for MACDProgram<'a> {
     fn update(
         &self,
         _state: &mut Self::State,
-        _event: &iced::Event,
-        _bounds: Rectangle,
-        _cursor: Cursor,
-    ) -> Option<iced::widget::canvas::Action<Message>> {
+        event: &iced::Event,
+        bounds: Rectangle,
+        cursor: Cursor,
+    ) -> Option<iced::widget::canvas::Action<crate::app::messages::Message>> {
+        match event {
+            // Gestion du pan (drag)
+            iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)) => {
+                // Utiliser la position absolue du curseur pour cohérence avec le graphique principal
+                if let Some(_) = cursor.position_in(bounds) {
+                    // Utiliser la position absolue (par rapport à la fenêtre) pour le pan
+                    // Le graphique principal convertira cette position en position relative à ses bounds
+                    if let Some(absolute_position) = cursor.position() {
+                        return Some(iced::widget::canvas::Action::publish(
+                            crate::app::messages::Message::Chart(
+                                crate::finance_chart::messages::ChartMessage::StartPan { 
+                                    position: absolute_position 
+                                }
+                            )
+                        ));
+                    }
+                }
+            }
+            iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) => {
+                return Some(iced::widget::canvas::Action::publish(
+                    crate::app::messages::Message::Chart(
+                        crate::finance_chart::messages::ChartMessage::EndPan
+                    )
+                ));
+            }
+            iced::Event::Mouse(iced::mouse::Event::CursorMoved { position: _ }) => {
+                // Si on est en train de faire un pan, mettre à jour uniquement l'axe horizontal
+                if self.chart_state.interaction.is_panning {
+                    // Utiliser la position absolue du curseur pour cohérence avec le graphique principal
+                    if let Some(absolute_position) = cursor.position() {
+                        return Some(iced::widget::canvas::Action::publish(
+                            crate::app::messages::Message::Chart(
+                                crate::finance_chart::messages::ChartMessage::UpdatePanHorizontal { 
+                                    position: absolute_position 
+                                }
+                            )
+                        ));
+                    }
+                }
+                // Sinon, demander un redraw pour mettre à jour le crosshair
+                return Some(iced::widget::canvas::Action::request_redraw());
+            }
+            _ => {}
+        }
         None
     }
 
@@ -296,7 +341,8 @@ impl<'a, Message> Program<Message> for MACDProgram<'a> {
         _bounds: Rectangle,
         _cursor: Cursor,
     ) -> iced::mouse::Interaction {
-        iced::mouse::Interaction::default()
+        // Afficher une croix comme curseur
+        iced::mouse::Interaction::Crosshair
     }
 }
 

@@ -19,6 +19,9 @@ pub fn handle_chart_message(app: &mut ChartApp, msg: ChartMessage) {
         ChartMessage::UpdatePan { position } => {
             app.chart_state.update_pan(position);
         }
+        ChartMessage::UpdatePanHorizontal { position } => {
+            app.chart_state.update_pan_horizontal(position);
+        }
         ChartMessage::EndPan => {
             app.chart_state.end_pan();
         }
@@ -162,8 +165,9 @@ pub fn handle_chart_message(app: &mut ChartApp, msg: ChartMessage) {
         }
         
         // === Resize ===
-        ChartMessage::Resize { width, height } => {
+        ChartMessage::Resize { width, height, x, y } => {
             app.chart_state.resize(width, height);
+            app.chart_state.interaction.set_main_chart_bounds(x, y, width, height);
         }
     }
 }
@@ -240,4 +244,3 @@ pub fn delete_selected(app: &mut ChartApp) {
         }
     }
 }
-

@@ -1,64 +1,113 @@
 //! Vue principale de l'application
 
-use iced::widget::{button, column, container, mouse_area, row, text, Space};
+use iced::widget::{button, column, container, mouse_area, row, stack, text, Space};
 use iced::{Element, Length};
 use crate::finance_chart::{
-    chart, x_axis, y_axis, tools_panel, series_select_box,
+    chart, chart_with_trading, chart_with_trades_and_trading,
+    x_axis, y_axis, tools_panel, series_select_box,
     X_AXIS_HEIGHT, TOOLS_PANEL_WIDTH,
 };
 use crate::app::{
     app_state::ChartApp,
     messages::Message,
     view_styles::{self, colors},
-    drag_overlay,
 };
 use super::helpers::corner_settings_button;
 use super::indicators::chart_with_indicators_overlay;
-use super::panels::{view_right_panel, view_bottom_panel, build_indicator_panels};
+use super::panels::{view_right_panel, view_bottom_panel, build_indicator_panels, section_context_menu};
+use super::crosshair_overlay::crosshair_overlay;
 
 /// Composant qui regroupe toutes les sections du graphique
 fn view_chart_component(app: &ChartApp) -> Element<'_, Message> {
-    let panel_focused = app.panels.has_focused_panel();
-    
-    // Ligne principale : Tools (gauche) + Chart (centre) + Axe Y (droite)
-    let chart_row = row![
-        tools_panel(&app.tools_state, app.indicators_panel_open).map(Message::ToolsPanel),
-        mouse_area(
-            container(
-                chart(&app.chart_state, &app.tools_state, &app.settings_state, &app.chart_style, panel_focused)
+    let panel_focused = app.ui.panels.has_focused_panel();
+
+    // Créer le graphique principal (sans la tools bar qui sera en overlay)
+    let main_chart = mouse_area(
+        container({
+            // Récupérer le symbole actuel et les trades
+            let current_symbol = app.chart_state.series_manager
+                .active_series()
+                .next()
+                .map(|s| s.symbol.as_str())
+                .unwrap_or("");
+
+            let trades = &app.trading_state.trade_history.trades;
+
+            // Utiliser chart_with_trades_and_trading si on est en mode paper et qu'il y a des trades
+            // Sinon utiliser chart_with_trading pour afficher les ordres limit même sans trades
+            if app.account_type.is_demo() && !current_symbol.is_empty() {
+                if !trades.is_empty() {
+                    chart_with_trades_and_trading(
+                        &app.chart_state,
+                        &app.tools_state,
+                        &app.settings_state,
+                        &app.chart_style,
+                        panel_focused,
+                        trades,
+                        current_symbol,
+                        &app.trading_state,
+                        app.indicators.bollinger_bands_enabled,
+                        app.indicators.moving_average_enabled,
+                        Some(&app.indicators.params),
+                    )
                     .map(Message::Chart)
-            )
-            .width(Length::Fill)
-            .height(Length::Fill)
-        )
-        .on_enter(Message::ClearPanelFocus),
-        y_axis(&app.chart_state).map(Message::YAxis)
+                } else {
+                    chart_with_trading(
+                        &app.chart_state,
+                        &app.tools_state,
+                        &app.settings_state,
+                        &app.chart_style,
+                        panel_focused,
+                        &app.trading_state,
+                        current_symbol,
+                        app.indicators.bollinger_bands_enabled,
+                        app.indicators.moving_average_enabled,
+                        Some(&app.indicators.params),
+                    )
+                    .map(Message::Chart)
+                }
+            } else {
+                chart(&app.chart_state, &app.tools_state, &app.settings_state, &app.chart_style, panel_focused, app.indicators.bollinger_bands_enabled, app.indicators.moving_average_enabled, Some(&app.indicators.params))
+                    .map(Message::Chart)
+            }
+        })
+        .width(Length::Fill)
+        .height(Length::Fill)
+    )
+    .on_enter(Message::ClearPanelFocus);
+
+    // Axe Y à droite
+    let y_axis_element = y_axis(&app.chart_state).map(Message::YAxis);
+
+    // Ligne principale du graphique : Chart (gauche) + Axe Y (droite)
+    let chart_area = row![
+        main_chart,
+        y_axis_element
     ]
     .width(Length::Fill)
     .height(Length::Fill);
 
-    // Ligne du bas : espace comblé (sous tools) + Axe X + bouton settings (coin)
-    let x_axis_row = row![
-        container(Space::new())
-            .width(Length::Fixed(TOOLS_PANEL_WIDTH))
-            .height(Length::Fill)
-            .style(view_styles::dark_background_style),
-        x_axis(&app.chart_state).map(Message::XAxis),
+    // Axe X en bas
+    let x_axis_element = x_axis(&app.chart_state).map(Message::XAxis);
+
+    // Ligne du bas : Axe X + bouton settings (coin)
+    let bottom_row = row![
+        x_axis_element,
         corner_settings_button()
     ]
     .width(Length::Fill)
     .height(Length::Fixed(X_AXIS_HEIGHT));
 
-    // Construire le layout avec les indicateurs
-    let mut layout_items: Vec<Element<'_, Message>> = vec![chart_row.into()];
-    
+    // Construire le layout vertical avec les indicateurs
+    let mut layout_items: Vec<Element<'_, Message>> = vec![chart_area.into()];
+
     // Ajouter les panneaux d'indicateurs (Volume, RSI, MACD)
     build_indicator_panels(app, &mut layout_items);
-    
-    // Ajouter l'axe X en dernier
-    layout_items.push(x_axis_row.into());
-    
-    // Créer le layout principal
+
+    // Ajouter l'axe X en bas
+    layout_items.push(bottom_row.into());
+
+    // Créer le layout principal vertical
     let mut main_chart_layout = column![];
     for item in layout_items {
         main_chart_layout = main_chart_layout.push(item);
@@ -66,9 +115,35 @@ fn view_chart_component(app: &ChartApp) -> Element<'_, Message> {
     let main_chart_layout = main_chart_layout
         .width(Length::Fill)
         .height(Length::Fill);
-    
+
+    // Créer la tools bar en overlay qui fait toute la hauteur
+    let tools_overlay = container(
+        tools_panel(&app.tools_state, app.ui.indicators_panel_open).map(Message::ToolsPanel)
+    )
+    .width(Length::Fixed(TOOLS_PANEL_WIDTH))
+    .height(Length::Fill)
+    .style(view_styles::dark_background_style);
+
+    // Superposer la tools bar sur le layout principal
+    let layout_stack = stack![
+        main_chart_layout,
+        container(tools_overlay)
+            .width(Length::Fixed(TOOLS_PANEL_WIDTH))
+            .height(Length::Fill)
+            .align_x(iced::alignment::Horizontal::Left)
+            .align_y(iced::alignment::Vertical::Top),
+        // Overlay pour la barre verticale synchronisée du crosshair
+        container(crosshair_overlay(&app.chart_state))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(|_theme| container::Style {
+                background: None,
+                ..Default::default()
+            })
+    ];
+
     // Ajouter l'overlay d'indicateurs si ouvert
-    chart_with_indicators_overlay(main_chart_layout.into(), app)
+    chart_with_indicators_overlay(layout_stack.into(), app)
 }
 
 /// Vue principale de l'application avec gestion globale du drag & drop
@@ -172,7 +247,7 @@ pub fn view_main(app: &ChartApp) -> Element<'_, Message> {
     });
 
     // Zone principale : Composant chart + Panneau de droite (si visible)
-    let main_content = if app.panels.right.visible {
+    let main_content = if app.ui.panels.right.visible {
         row![
             view_chart_component(app),
             view_right_panel(app)
@@ -185,32 +260,65 @@ pub fn view_main(app: &ChartApp) -> Element<'_, Message> {
             .height(Length::Fill)
     };
 
-    // Layout complet : Header + Zone principale + Panneau du bas
-    let main_layout = column![
-        header,
-        main_content,
-        view_bottom_panel(app)
-    ]
-    .width(Length::Fill)
-    .height(Length::Fill);
-    
-    // Si on drag une section, ajouter l'overlay qui suit la souris
-    if let Some(section) = app.dragging_section {
-        let position = app.drag_position.unwrap_or(iced::Point::new(0.0, 0.0));
-        
-        container(
-            column![
-                main_layout,
-                drag_overlay::drag_overlay(section, position)
-            ]
+    // Menu contextuel en overlay positionné à la position du clic
+    let context_menu_overlay = if let Some((_, position)) = &app.ui.section_context_menu {
+        stack![
+            // Overlay sombre pour fermer le menu en cliquant ailleurs
+            mouse_area(
+                container(Space::new())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+            )
+            .on_press(Message::CloseSectionContextMenu),
+            // Menu contextuel positionné à la position du clic
+            container(
+                section_context_menu(app)
+            )
+            .style(|_theme| container::Style {
+                background: None,
+                ..Default::default()
+            })
             .width(Length::Fill)
             .height(Length::Fill)
-        )
+            .align_x(iced::alignment::Horizontal::Left)
+            .align_y(iced::alignment::Vertical::Top)
+            .padding(iced::Padding {
+                left: position.x,
+                top: position.y,
+                right: 0.0,
+                bottom: 0.0,
+            })
+        ]
         .width(Length::Fill)
         .height(Length::Fill)
-        .into()
     } else {
-        main_layout.into()
-    }
+        stack![].width(Length::Fill).height(Length::Fill)
+    };
+
+    // Overlay pour le drag (si actif)
+    let drag_overlay_element = if let Some((section, position)) = &app.ui.drag_overlay {
+        stack![ container(crate::app::ui::drag_overlay(*section, *position)).width(Length::Fill).height(Length::Fill) ]
+            .width(Length::Fill)
+            .height(Length::Fill)
+    } else {
+        stack![].width(Length::Fill).height(Length::Fill)
+    };
+    
+    // Layout complet : Header + Zone principale + Panneau du bas + Menu contextuel + Drag overlay
+    stack![
+        column![
+            header,
+            main_content,
+            view_bottom_panel(app)
+        ]
+        .width(Length::Fill)
+        .height(Length::Fill),
+        context_menu_overlay,
+        drag_overlay_element
+    ]
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .into()
 }
+
 

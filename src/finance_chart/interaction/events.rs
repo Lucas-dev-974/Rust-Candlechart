@@ -5,10 +5,12 @@ use iced::Point;
 pub struct InteractionState {
     /// Position actuelle de la souris
     pub mouse_position: Option<Point>,
-    /// Position de départ d'un drag
+    /// Position de départ d'un drag (position relative au graphique principal)
     pub drag_start: Option<Point>,
     /// Indique si l'utilisateur est en train de faire un pan
     pub is_panning: bool,
+    /// Bounds du graphique principal (x, y, width, height) pour convertir positions absolues en relatives
+    pub main_chart_bounds: Option<(f32, f32, f32, f32)>,
 }
 
 impl InteractionState {
@@ -28,6 +30,21 @@ impl InteractionState {
             Some((delta_x, delta_y))
         } else {
             None
+        }
+    }
+
+    /// Met à jour les bounds du graphique principal
+    pub fn set_main_chart_bounds(&mut self, x: f32, y: f32, width: f32, height: f32) {
+        self.main_chart_bounds = Some((x, y, width, height));
+    }
+
+    /// Convertit une position absolue en position relative au graphique principal
+    pub fn absolute_to_relative(&self, absolute_position: Point) -> Point {
+        if let Some((x, y, _, _)) = self.main_chart_bounds {
+            Point::new(absolute_position.x - x, absolute_position.y - y)
+        } else {
+            // Si les bounds ne sont pas encore définies, utiliser la position telle quelle
+            absolute_position
         }
     }
 

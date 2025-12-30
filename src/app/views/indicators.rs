@@ -6,7 +6,7 @@ use crate::app::{
     app_state::ChartApp,
     messages::Message,
     view_styles::{self, colors},
-    constants::INDICATORS_PANEL_WIDTH,
+    utils::constants::INDICATORS_PANEL_WIDTH,
 };
 use crate::finance_chart::TOOLS_PANEL_WIDTH;
 
@@ -23,28 +23,28 @@ pub fn indicators_panel(app: &ChartApp) -> Element<'_, Message> {
     let indicators = vec![
         Indicator {
             name: "Volume Profile",
-            is_active: app.panels.volume.visible,
+            is_active: app.ui.panels.volume.visible,
             on_toggle: |_| Message::ToggleVolumePanel,
         },
         Indicator {
             name: "RSI",
-            is_active: app.panels.rsi.visible,
+            is_active: app.ui.panels.rsi.visible,
             on_toggle: |_| Message::ToggleRSIPanel,
         },
         Indicator {
             name: "MACD",
-            is_active: app.panels.macd.visible,
+            is_active: app.ui.panels.macd.visible,
             on_toggle: |_| Message::ToggleMACDPanel,
         },
         Indicator {
             name: "Bollinger Bands",
-            is_active: false,
-            on_toggle: |_| Message::ClearPanelFocus, // TODO: implémenter
+            is_active: app.indicators.bollinger_bands_enabled,
+            on_toggle: |_| Message::ToggleBollingerBands,
         },
         Indicator {
             name: "Moving Average",
-            is_active: false,
-            on_toggle: |_| Message::ClearPanelFocus, // TODO: implémenter
+            is_active: app.indicators.moving_average_enabled,
+            on_toggle: |_| Message::ToggleMovingAverage,
         },
         Indicator {
             name: "Stochastic",
@@ -126,7 +126,7 @@ pub fn indicators_panel(app: &ChartApp) -> Element<'_, Message> {
 
 /// Helper pour créer un chart avec overlay d'indicateurs si ouvert
 pub fn chart_with_indicators_overlay<'a>(chart_content: Element<'a, Message>, app: &'a ChartApp) -> Element<'a, Message> {
-    if app.indicators_panel_open {
+    if app.ui.indicators_panel_open {
         // Utiliser stack pour superposer l'overlay sur le graphique
         stack![
             // Le graphique principal (en dessous)

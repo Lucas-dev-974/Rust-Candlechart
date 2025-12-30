@@ -14,6 +14,8 @@ pub enum ChartMessage {
     StartPan { position: Point },
     /// Mettre à jour le pan en cours
     UpdatePan { position: Point },
+    /// Mettre à jour le pan horizontal uniquement (pour les indicateurs)
+    UpdatePanHorizontal { position: Point },
     /// Terminer le pan
     EndPan,
     /// Zoom horizontal (molette)
@@ -78,8 +80,8 @@ pub enum ChartMessage {
     MouseMoved { position: Point },
     
     // === Resize ===
-    /// Mise à jour de la taille du viewport
-    Resize { width: f32, height: f32 },
+    /// Mise à jour de la taille du viewport (et des bounds pour convertir positions absolues en relatives)
+    Resize { width: f32, height: f32, x: f32, y: f32 },
 }
 
 /// Messages émis par l'axe Y

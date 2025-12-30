@@ -5,7 +5,11 @@
 //!
 //! Structure :
 //! - `main.rs` : vue principale avec chart et panneaux
-//! - `panels.rs` : panneaux latéraux (droite et bas)
+//! - `panels/` : panneaux latéraux (droite et bas)
+//!   - `indicators.rs` : panneaux d'indicateurs (Volume, RSI, MACD)
+//!   - `right.rs` : panneau de droite
+//!   - `bottom.rs` : panneau du bas
+//!   - `sections/` : sections du panneau du bas
 //! - `indicators.rs` : onglet d'indicateurs
 //! - `settings.rs` : fenêtre de configuration du style
 //! - `provider.rs` : fenêtre de configuration des providers
@@ -19,6 +23,8 @@ mod provider;
 mod account;
 mod helpers;
 mod downloads_view;
+mod context_menu_capture;
+mod crosshair_overlay;
 
 // Réexporter les fonctions publiques pour compatibilité
 pub use main_view::view_main;

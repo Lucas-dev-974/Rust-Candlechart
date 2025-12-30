@@ -128,18 +128,51 @@ impl ChartState {
     }
 
     /// Démarre un pan (drag)
-    pub fn start_pan(&mut self, position: iced::Point) {
-        self.interaction.start_pan(position);
+    /// Accepte une position absolue et la convertit en position relative au graphique principal
+    pub fn start_pan(&mut self, absolute_position: iced::Point) {
+        let relative_position = self.interaction.absolute_to_relative(absolute_position);
+        self.interaction.start_pan(relative_position);
     }
 
     /// Met à jour le pan en cours
-    pub fn update_pan(&mut self, position: iced::Point) {
-        if let Some((delta_x, delta_y)) = self.interaction.update_pan(position) {
+    /// Accepte une position absolue et la convertit en position relative au graphique principal
+    pub fn update_pan(&mut self, absolute_position: iced::Point) {
+        let relative_position = self.interaction.absolute_to_relative(absolute_position);
+        if let Some((delta_x, delta_y)) = self.interaction.update_pan(relative_position) {
             // Inverser le delta horizontal pour un comportement naturel
             // (quand on tire vers la droite,    on voit les données précédentes)
             // Le delta vertical n'est pas inversé (tirer vers le haut = monter)
             self.pan_horizontal(-delta_x);
-            self.pan_vertical(delta_y);
+            
+            // Ne déplacer verticalement que si le mouvement vertical est significatif
+            // Cela évite de déplacer l'axe Y quand on veut seulement panner horizontalement
+            // Seuil : le mouvement vertical doit être au moins 25% du mouvement horizontal
+            // pour être considéré comme intentionnel
+            let abs_delta_x = delta_x.abs();
+            let abs_delta_y = delta_y.abs();
+            if abs_delta_x > 0.0 && abs_delta_y / abs_delta_x > 0.25 {
+                self.pan_vertical(delta_y);
+            } else if abs_delta_x == 0.0 && abs_delta_y > 2.0 {
+                // Si pas de mouvement horizontal mais mouvement vertical significatif
+                self.pan_vertical(delta_y);
+            }
+        }
+    }
+
+    /// Met à jour le pan horizontal uniquement (pour synchroniser les indicateurs)
+    /// Accepte une position absolue et la convertit en position relative au graphique principal
+    pub fn update_pan_horizontal(&mut self, absolute_position: iced::Point) {
+        let relative_position = self.interaction.absolute_to_relative(absolute_position);
+        
+        // Calculer le delta depuis la dernière position et mettre à jour drag_start
+        if let Some(start) = self.interaction.drag_start {
+            let delta_x = relative_position.x - start.x;
+            // Mettre à jour drag_start pour le prochain mouvement (comme dans update_pan)
+            self.interaction.drag_start = Some(relative_position);
+            
+            // Inverser le delta horizontal pour un comportement naturel
+            // (quand on tire vers la droite, on voit les données précédentes)
+            self.pan_horizontal(-delta_x);
         }
     }
 

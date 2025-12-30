@@ -82,6 +82,16 @@ pub enum Message {
     ToggleVolumePanel,
     ToggleRSIPanel,
     ToggleMACDPanel,
+    ToggleBollingerBands,
+    ToggleMovingAverage,
+    // Messages pour modifier les paramètres des indicateurs
+    UpdateRSIPeriod(usize),
+    UpdateMACDFastPeriod(usize),
+    UpdateMACDSlowPeriod(usize),
+    UpdateMACDSignalPeriod(usize),
+    UpdateBollingerPeriod(usize),
+    UpdateBollingerStdDev(f64),
+    UpdateMAPeriod(usize),
     StartResizeRightPanel(f32),
     StartResizeBottomPanel(f32),
     StartResizeVolumePanel(f32),
@@ -98,14 +108,22 @@ pub enum Message {
     EndResizeRSIPanel,
     EndResizeMACDPanel,
     
-    
-    // === Messages de drag & drop ===
-    StartDragSection(crate::app::bottom_panel_sections::BottomPanelSection),
+    // === Messages de sélection de sections ===
+    SelectBottomSection(crate::app::state::BottomPanelSection),
+    SelectRightSection(crate::app::state::BottomPanelSection),
+    /// Ouvrir le menu contextuel pour une section (avec position du curseur)
+    OpenSectionContextMenu(crate::app::state::BottomPanelSection, iced::Point),
+    /// Fermer le menu contextuel
+    CloseSectionContextMenu,
+    /// Déplacer une section vers le panneau de droite
+    MoveSectionToRightPanel(crate::app::state::BottomPanelSection),
+    /// Déplacer une section vers le panneau du bas
+    MoveSectionToBottomPanel(crate::app::state::BottomPanelSection),
+
+    // === Messages de drag des sections ===
     UpdateDragPosition(iced::Point),
     EndDragSection,
-    DragEnterRightPanel,
-    DragExitRightPanel,
-    
+
     // === Messages du type de compte ===
     ToggleAccountType,
     
@@ -120,5 +138,15 @@ pub enum Message {
     SetRSIPanelFocus(bool),
     SetMACDPanelFocus(bool),
     ClearPanelFocus,
+    
+    // === Messages de trading ===
+    UpdateOrderQuantity(String),
+    UpdateOrderType(crate::app::data::OrderType),
+    UpdateLimitPrice(String),
+    UpdateTakeProfit(String),
+    UpdateStopLoss(String),
+    ToggleTPSLEnabled,
+    PlaceBuyOrder,
+    PlaceSellOrder,
 }
 
