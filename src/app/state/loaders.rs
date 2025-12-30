@@ -8,7 +8,7 @@ use crate::app::{
         PanelsState, MIN_PANEL_SIZE, BottomPanelSectionsState, TradingState,
         BottomPanelSection,
     },
-    persistence::PanelPersistenceState,
+    persistence::{PanelPersistenceState, TimeframePersistenceState},
     data::TradeHistory,
 };
 
@@ -170,6 +170,19 @@ pub fn load_provider_config() -> crate::finance_chart::ProviderConfigManager {
         Err(_) => {
             println!("ℹ️ Configuration des providers par défaut utilisée");
             crate::finance_chart::ProviderConfigManager::new()
+        }
+    }
+}
+
+/// Charge le timeframe sélectionné depuis le fichier
+pub fn load_timeframe() -> Option<String> {
+    match TimeframePersistenceState::load_from_file("timeframe.json") {
+        Ok(state) => {
+            println!("✅ Timeframe chargé depuis timeframe.json: {}", state.interval);
+            Some(state.interval)
+        }
+        Err(_) => {
+            None
         }
     }
 }

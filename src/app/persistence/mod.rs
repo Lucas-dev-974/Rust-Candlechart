@@ -4,9 +4,11 @@
 
 mod panel_persistence;
 mod trading_persistence;
+mod timeframe_persistence;
 
 pub use panel_persistence::PanelPersistenceState;
 pub use trading_persistence::TradingPersistenceState;
+pub use timeframe_persistence::TimeframePersistenceState;
 
 
 

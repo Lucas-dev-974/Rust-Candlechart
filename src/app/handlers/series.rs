@@ -3,6 +3,7 @@
 use iced::Task;
 use crate::app::app_state::ChartApp;
 use crate::finance_chart::core::SeriesId;
+use crate::app::persistence::TimeframePersistenceState;
 
 /// Gère la sélection d'une série par nom
 pub fn handle_select_series_by_name(app: &mut ChartApp, series_name: String) -> Task<crate::app::messages::Message> {
@@ -20,6 +21,17 @@ pub fn handle_select_series_by_name(app: &mut ChartApp, series_name: String) -> 
         app.chart_state.series_manager.activate_only_series(series_id.clone());
         // Mettre à jour le viewport après activation
         app.chart_state.update_viewport_from_series();
+        
+        // Sauvegarder le timeframe sélectionné
+        if let Some(series) = app.chart_state.series_manager.get_series(&series_id) {
+            let timeframe_state = TimeframePersistenceState {
+                interval: series.interval.clone(),
+                symbol: Some(series.symbol.clone()),
+            };
+            if let Err(e) = timeframe_state.save_to_file("timeframe.json") {
+                eprintln!("⚠️ Erreur sauvegarde timeframe: {}", e);
+            }
+        }
         
         // Mettre à jour automatiquement TP/SL avec 15% d'écart si les champs sont vides
         if let Some(current_price) = app.chart_state.series_manager
@@ -81,6 +93,38 @@ pub fn handle_load_series_complete(
             if app.chart_state.series_manager.total_count() == 0 {
                 eprintln!("⚠️ Aucune série chargée. Vérifiez que le dossier 'data' contient des fichiers JSON.");
                 return Task::none();
+            }
+            
+            // Restaurer le timeframe sauvegardé
+            if let Some(saved_interval) = crate::app::state::loaders::load_timeframe() {
+                // Chercher une série avec l'intervalle sauvegardé
+                // Prioriser le symbole sauvegardé si disponible
+                let saved_symbol = TimeframePersistenceState::load_from_file("timeframe.json")
+                    .ok()
+                    .and_then(|state| state.symbol);
+                
+                let series_to_activate = if let Some(ref symbol) = saved_symbol {
+                    // Chercher d'abord avec le symbole sauvegardé
+                    app.chart_state.series_manager.all_series()
+                        .find(|s| s.interval == saved_interval && s.symbol == *symbol)
+                        .or_else(|| {
+                            // Sinon chercher avec n'importe quel symbole
+                            app.chart_state.series_manager.all_series()
+                                .find(|s| s.interval == saved_interval)
+                        })
+                } else {
+                    // Chercher avec n'importe quel symbole
+                    app.chart_state.series_manager.all_series()
+                        .find(|s| s.interval == saved_interval)
+                };
+                
+                if let Some(series) = series_to_activate {
+                    println!("🔄 Restauration du timeframe sauvegardé: {}", series.full_name());
+                    app.chart_state.series_manager.activate_only_series(series.id.clone());
+                    app.chart_state.update_viewport_from_series();
+                } else {
+                    println!("⚠️ Timeframe sauvegardé '{}' non trouvé, utilisation de la série par défaut", saved_interval);
+                }
             }
             
             // Initialiser TP/SL avec 15% d'écart du prix actuel si les champs sont vides
