@@ -93,6 +93,12 @@ pub struct Trade {
     pub realized_pnl: f64,
     /// Timestamp d'exécution
     pub timestamp: i64,
+    /// ID de la stratégie qui a généré ce trade (None si trade manuel)
+    #[serde(default)]
+    pub strategy_id: Option<String>,
+    /// Nom de la stratégie (pour affichage)
+    #[serde(default)]
+    pub strategy_name: Option<String>,
 }
 
 /// Gestionnaire de l'historique des trades et des positions
@@ -155,6 +161,22 @@ impl TradeHistory {
         take_profit: Option<f64>,
         stop_loss: Option<f64>,
     ) -> Trade {
+        self.open_buy_position_with_tp_sl_and_strategy(
+            symbol, quantity, price, take_profit, stop_loss, None, None
+        )
+    }
+    
+    /// Ouvre une position (achat) avec TP, SL et informations de stratégie
+    pub fn open_buy_position_with_tp_sl_and_strategy(
+        &mut self,
+        symbol: String,
+        quantity: f64,
+        price: f64,
+        take_profit: Option<f64>,
+        stop_loss: Option<f64>,
+        strategy_id: Option<String>,
+        strategy_name: Option<String>,
+    ) -> Trade {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -181,6 +203,8 @@ impl TradeHistory {
             total_amount: quantity * price,
             realized_pnl: 0.0,
             timestamp,
+            strategy_id,
+            strategy_name,
         };
         
         self.next_trade_id += 1;
@@ -191,6 +215,18 @@ impl TradeHistory {
     
     /// Ferme une position (vente)
     pub fn close_position(&mut self, symbol: &str, quantity: f64, price: f64) -> Option<Trade> {
+        self.close_position_with_strategy(symbol, quantity, price, None, None)
+    }
+    
+    /// Ferme une position (vente) avec informations de stratégie
+    pub fn close_position_with_strategy(
+        &mut self,
+        symbol: &str,
+        quantity: f64,
+        price: f64,
+        strategy_id: Option<String>,
+        strategy_name: Option<String>,
+    ) -> Option<Trade> {
         // Trouver une position ouverte correspondante
         let position_index = self.open_positions.iter()
             .position(|p| p.symbol == symbol && p.trade_type == TradeType::Buy);
@@ -215,6 +251,8 @@ impl TradeHistory {
                 total_amount: quantity * price,
                 realized_pnl,
                 timestamp,
+                strategy_id,
+                strategy_name,
             };
             
             self.next_trade_id += 1;
@@ -250,6 +288,22 @@ impl TradeHistory {
         take_profit: Option<f64>,
         stop_loss: Option<f64>,
     ) -> Trade {
+        self.open_sell_position_with_tp_sl_and_strategy(
+            symbol, quantity, price, take_profit, stop_loss, None, None
+        )
+    }
+    
+    /// Ouvre une position de vente (short) avec TP, SL et informations de stratégie
+    pub fn open_sell_position_with_tp_sl_and_strategy(
+        &mut self,
+        symbol: String,
+        quantity: f64,
+        price: f64,
+        take_profit: Option<f64>,
+        stop_loss: Option<f64>,
+        strategy_id: Option<String>,
+        strategy_name: Option<String>,
+    ) -> Trade {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -276,6 +330,8 @@ impl TradeHistory {
             total_amount: quantity * price,
             realized_pnl: 0.0,
             timestamp,
+            strategy_id,
+            strategy_name,
         };
         
         self.next_trade_id += 1;
@@ -287,6 +343,18 @@ impl TradeHistory {
     /// Ferme une position short (achat)
     #[allow(dead_code)] // Pour usage futur
     pub fn close_short_position(&mut self, symbol: &str, quantity: f64, price: f64) -> Option<Trade> {
+        self.close_short_position_with_strategy(symbol, quantity, price, None, None)
+    }
+    
+    /// Ferme une position short (achat) avec informations de stratégie
+    pub fn close_short_position_with_strategy(
+        &mut self,
+        symbol: &str,
+        quantity: f64,
+        price: f64,
+        strategy_id: Option<String>,
+        strategy_name: Option<String>,
+    ) -> Option<Trade> {
         // Trouver une position short ouverte correspondante
         let position_index = self.open_positions.iter()
             .position(|p| p.symbol == symbol && p.trade_type == TradeType::Sell);
@@ -311,6 +379,8 @@ impl TradeHistory {
                 total_amount: quantity * price,
                 realized_pnl,
                 timestamp,
+                strategy_id,
+                strategy_name,
             };
             
             self.next_trade_id += 1;

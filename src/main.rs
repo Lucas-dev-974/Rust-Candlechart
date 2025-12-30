@@ -192,6 +192,35 @@ impl ChartApp {
             }
             Message::UpdateDragPosition(position) => handle_update_drag_position(self, position),
             Message::EndDragSection => handle_end_drag_section(self),
+            
+            // === Gestion des stratégies de trading automatisées ===
+            Message::RegisterRSIStrategy => handle_register_rsi_strategy(self),
+            Message::RegisterMACrossoverStrategy => handle_register_ma_crossover_strategy(self),
+            Message::EnableStrategy(id) => handle_enable_strategy(self, id),
+            Message::DisableStrategy(id) => handle_disable_strategy(self, id),
+            Message::RemoveStrategy(id) => handle_remove_strategy(self, id),
+            Message::UpdateStrategyParameter { strategy_id, param_name, value } => {
+                handle_update_strategy_parameter(self, strategy_id, param_name, value)
+            }
+            Message::UpdateStrategyTimeframes { strategy_id, timeframes } => {
+                handle_update_strategy_timeframes(self, strategy_id, timeframes)
+            }
+            Message::ExecuteStrategies => execute_strategies(self),
+            Message::ToggleStrategyConfig(strategy_id) => {
+                handle_toggle_strategy_config(self, strategy_id)
+            }
+            Message::UpdateStrategyParamInput { strategy_id, param_name, value } => {
+                handle_update_strategy_param_input(self, strategy_id, param_name, value)
+            }
+            Message::ToggleStrategyTimeframe { strategy_id, timeframe } => {
+                handle_toggle_strategy_timeframe(self, strategy_id, timeframe)
+            }
+            Message::ApplyStrategyConfig(strategy_id) => {
+                handle_apply_strategy_config(self, strategy_id)
+            }
+            Message::CancelStrategyConfig(strategy_id) => {
+                handle_cancel_strategy_config(self, strategy_id)
+            }
         }
     }
     

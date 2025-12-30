@@ -20,6 +20,8 @@ pub enum BottomPanelSection {
     Account,
     /// Section pour l'historique des trades
     TradeHistory,
+    /// Section pour les stratégies de trading automatisées
+    Strategies,
 }
 
 impl BottomPanelSection {
@@ -32,6 +34,7 @@ impl BottomPanelSection {
             Self::Orders,
             Self::Account,
             Self::TradeHistory,
+            Self::Strategies,
         ]
     }
     
@@ -44,6 +47,7 @@ impl BottomPanelSection {
             Self::Orders => "Ordres",
             Self::Account => "Compte",
             Self::TradeHistory => "Historique",
+            Self::Strategies => "Stratégies",
         }
     }
 }

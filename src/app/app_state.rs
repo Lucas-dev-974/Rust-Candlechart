@@ -25,6 +25,7 @@ use crate::app::{
         },
     },
     data::DownloadManager,
+    strategies::manager::StrategyManager,
 };
 
 /// Application principale - possède directement tout l'état (pas de Rc<RefCell>)
@@ -76,6 +77,23 @@ pub struct ChartApp {
     
     // État de trading
     pub trading_state: TradingState,
+    
+    // Gestionnaire de stratégies de trading automatisées
+    pub strategy_manager: StrategyManager,
+    
+    // État temporaire pour l'édition des stratégies
+    pub editing_strategies: HashMap<String, StrategyEditingState>,
+}
+
+/// État temporaire pour l'édition d'une stratégie
+#[derive(Debug, Clone)]
+pub struct StrategyEditingState {
+    /// Indique si le panneau de configuration est ouvert
+    pub expanded: bool,
+    /// Valeurs temporaires des paramètres (nom -> valeur en string)
+    pub param_values: HashMap<String, String>,
+    /// Timeframes sélectionnés temporairement
+    pub selected_timeframes: Vec<String>,
 }
 
 /// État de progression d'un téléchargement
@@ -144,6 +162,8 @@ impl ChartApp {
                 indicators: IndicatorState::new(),
                 download_manager: DownloadManager::new(),
                 trading_state: load_trading_state(),
+                strategy_manager: StrategyManager::new_or_load("strategies.json"),
+                editing_strategies: HashMap::new(),
             },
             Task::batch(vec![
                 open_task.map(Message::MainWindowOpened),

@@ -148,5 +148,21 @@ pub enum Message {
     ToggleTPSLEnabled,
     PlaceBuyOrder,
     PlaceSellOrder,
+    
+    // === Messages des stratégies de trading automatisées ===
+    RegisterRSIStrategy,
+    RegisterMACrossoverStrategy,
+    EnableStrategy(String),
+    DisableStrategy(String),
+    RemoveStrategy(String),
+    UpdateStrategyParameter { strategy_id: String, param_name: String, value: f64 },
+    UpdateStrategyTimeframes { strategy_id: String, timeframes: Option<Vec<String>> },
+    ExecuteStrategies,
+    // Messages pour l'interface de paramétrage
+    ToggleStrategyConfig(String), // Ouvre/ferme le panneau de configuration d'une stratégie
+    UpdateStrategyParamInput { strategy_id: String, param_name: String, value: String }, // Valeur temporaire dans l'input
+    ToggleStrategyTimeframe { strategy_id: String, timeframe: String }, // Ajoute/retire un timeframe de la sélection
+    ApplyStrategyConfig(String), // Applique les modifications d'une stratégie
+    CancelStrategyConfig(String), // Annule les modifications d'une stratégie
 }
 

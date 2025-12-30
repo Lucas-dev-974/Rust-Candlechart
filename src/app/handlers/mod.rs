@@ -11,6 +11,7 @@ mod provider;
 mod trading;
 mod realtime;
 mod panels;
+pub mod strategies;
 
 pub use handlers::handle_chart_message;
 pub use windows::{
@@ -28,6 +29,7 @@ pub use provider::*;
 pub use trading::*;
 pub use realtime::*;
 pub use panels::*;
+pub use strategies::*;
 
 
 

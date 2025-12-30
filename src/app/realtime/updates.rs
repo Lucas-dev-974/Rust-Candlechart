@@ -151,6 +151,12 @@ pub fn apply_realtime_updates(app: &mut ChartApp, results: Vec<(SeriesId, String
             if let Err(e) = app.trading_state.trade_history.save_to_file("paper_trading.json") {
                 eprintln!("⚠️ Erreur sauvegarde historique trading: {}", e);
             }
+            
+            // Exécuter les stratégies automatisées si une nouvelle bougie a été ajoutée
+            if has_new_candles {
+                use crate::app::handlers::strategies::execute_strategies;
+                let _ = execute_strategies(app);
+            }
         } else if app.account_type.is_demo() {
             app.update_account_info();
         }
