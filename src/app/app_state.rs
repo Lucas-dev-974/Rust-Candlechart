@@ -94,6 +94,8 @@ pub struct StrategyEditingState {
     pub param_values: HashMap<String, String>,
     /// Timeframes sélectionnés temporairement
     pub selected_timeframes: Vec<String>,
+    /// Mode de trading sélectionné temporairement
+    pub trading_mode: crate::app::strategies::strategy::TradingMode,
 }
 
 /// État de progression d'un téléchargement

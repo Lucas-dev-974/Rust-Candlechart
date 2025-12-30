@@ -215,6 +215,9 @@ impl ChartApp {
             Message::ToggleStrategyTimeframe { strategy_id, timeframe } => {
                 handle_toggle_strategy_timeframe(self, strategy_id, timeframe)
             }
+            Message::UpdateStrategyTradingMode { strategy_id, trading_mode } => {
+                handle_update_strategy_trading_mode(self, strategy_id, trading_mode)
+            }
             Message::ApplyStrategyConfig(strategy_id) => {
                 handle_apply_strategy_config(self, strategy_id)
             }

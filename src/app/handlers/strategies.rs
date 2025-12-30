@@ -2,7 +2,7 @@
 
 use iced::Task;
 use crate::app::app_state::ChartApp;
-use crate::app::strategies::strategy::{MarketContext, TradingSignal};
+use crate::app::strategies::strategy::{MarketContext, TradingSignal, TradingMode};
 use crate::app::data::OrderType;
 
 /// Sauvegarde automatiquement les stratégies
@@ -47,12 +47,28 @@ pub fn execute_strategies(app: &mut ChartApp) -> Task<crate::app::messages::Mess
     
     // Exécuter les signaux générés
     for (strategy_id, result) in results {
-        // Récupérer le nom de la stratégie
-        let strategy_name = app.strategy_manager
-            .get_strategy(&strategy_id)
-            .map(|reg| reg.strategy.name().to_string());
+        // Récupérer la stratégie pour vérifier le mode de trading
+        let Some(reg) = app.strategy_manager.get_strategy(&strategy_id) else {
+            continue;
+        };
         
-        match result.signal {
+        let strategy_name = reg.strategy.name().to_string();
+        let trading_mode = reg.trading_mode;
+        
+        // Filtrer les signaux selon le mode de trading
+        let signal = match (&result.signal, trading_mode) {
+            (TradingSignal::Buy { .. }, TradingMode::SellOnly) => {
+                // Ignorer les signaux d'achat si mode vente uniquement
+                continue;
+            }
+            (TradingSignal::Sell { .. }, TradingMode::BuyOnly) => {
+                // Ignorer les signaux de vente si mode achat uniquement
+                continue;
+            }
+            _ => result.signal.clone(),
+        };
+        
+        match signal {
             TradingSignal::Buy { quantity, order_type, take_profit, stop_loss, .. } => {
                 println!("🤖 [{}] Signal d'achat: {} (confiance: {:.2}%)", 
                     strategy_id, result.reason, result.confidence * 100.0);
@@ -74,7 +90,7 @@ pub fn execute_strategies(app: &mut ChartApp) -> Task<crate::app::messages::Mess
                         take_profit,
                         stop_loss,
                         Some(strategy_id.clone()),
-                        strategy_name.clone(),
+                        Some(strategy_name.clone()),
                     );
                     
                     println!("  ✅ Position ouverte automatiquement: Trade #{}", position.id);
@@ -103,7 +119,7 @@ pub fn execute_strategies(app: &mut ChartApp) -> Task<crate::app::messages::Mess
                         quantity, 
                         price,
                         Some(strategy_id.clone()),
-                        strategy_name.clone(),
+                        Some(strategy_name.clone()),
                     ) {
                         println!("  ✅ Position fermée automatiquement: Trade #{} (P&L: {:.2})", 
                             trade.id, trade.realized_pnl);
@@ -116,7 +132,7 @@ pub fn execute_strategies(app: &mut ChartApp) -> Task<crate::app::messages::Mess
                             take_profit,
                             stop_loss,
                             Some(strategy_id.clone()),
-                            strategy_name.clone(),
+                            Some(strategy_name.clone()),
                         );
                         println!("  ✅ Position short ouverte automatiquement: Trade #{}", trade.id);
                     }
@@ -256,6 +272,7 @@ pub fn handle_toggle_strategy_config(app: &mut ChartApp, strategy_id: String) ->
             expanded: false,
             param_values,
             selected_timeframes,
+            trading_mode: reg.map(|r| r.trading_mode).unwrap_or(crate::app::strategies::strategy::TradingMode::Both),
         }
     });
     
@@ -274,11 +291,14 @@ pub fn handle_update_strategy_param_input(
     use crate::app::app_state::StrategyEditingState;
     use std::collections::HashMap;
     
-    let editing_state = app.editing_strategies.entry(strategy_id.clone()).or_insert_with(|| {
+    let strategy_id_clone = strategy_id.clone();
+    let reg = app.strategy_manager.get_strategy(&strategy_id_clone);
+    let editing_state = app.editing_strategies.entry(strategy_id).or_insert_with(|| {
         StrategyEditingState {
             expanded: true,
             param_values: HashMap::new(),
             selected_timeframes: Vec::new(),
+            trading_mode: reg.map(|r| r.trading_mode).unwrap_or(crate::app::strategies::strategy::TradingMode::Both),
         }
     });
     
@@ -308,6 +328,7 @@ pub fn handle_toggle_strategy_timeframe(
             expanded: true,
             param_values: HashMap::new(),
             selected_timeframes,
+            trading_mode: reg.map(|r| r.trading_mode).unwrap_or(crate::app::strategies::strategy::TradingMode::Both),
         }
     });
     
@@ -376,6 +397,18 @@ pub fn handle_apply_strategy_config(app: &mut ChartApp, strategy_id: String) -> 
         }
     }
     
+    // Appliquer le mode de trading
+    if let Err(e) = app.strategy_manager.set_strategy_trading_mode(&strategy_id, editing_state.trading_mode) {
+        eprintln!("❌ Erreur mise à jour mode de trading: {}", e);
+    } else {
+        let mode_text = match editing_state.trading_mode {
+            crate::app::strategies::strategy::TradingMode::BuyOnly => "Achats uniquement",
+            crate::app::strategies::strategy::TradingMode::SellOnly => "Ventes uniquement",
+            crate::app::strategies::strategy::TradingMode::Both => "Achats et ventes",
+        };
+        println!("✅ Mode de trading mis à jour: {}", mode_text);
+    }
+    
     // Fermer le panneau de configuration
     if let Some(editing) = app.editing_strategies.get_mut(&strategy_id) {
         editing.expanded = false;
@@ -400,8 +433,32 @@ pub fn handle_cancel_strategy_config(app: &mut ChartApp, strategy_id: String) ->
                 editing.param_values.insert(param.name, format!("{:.2}", param.value));
             }
             editing.selected_timeframes = reg.allowed_timeframes.clone().unwrap_or_default();
+            editing.trading_mode = reg.trading_mode;
         }
     }
+    
+    Task::none()
+}
+
+/// Met à jour le mode de trading temporairement dans l'état d'édition
+pub fn handle_update_strategy_trading_mode(
+    app: &mut ChartApp,
+    strategy_id: String,
+    trading_mode: crate::app::strategies::strategy::TradingMode,
+) -> Task<crate::app::messages::Message> {
+    use crate::app::app_state::StrategyEditingState;
+    use std::collections::HashMap;
+    
+    let editing_state = app.editing_strategies.entry(strategy_id).or_insert_with(|| {
+        StrategyEditingState {
+            expanded: true,
+            param_values: HashMap::new(),
+            selected_timeframes: Vec::new(),
+            trading_mode: crate::app::strategies::strategy::TradingMode::Both,
+        }
+    });
+    
+    editing_state.trading_mode = trading_mode;
     
     Task::none()
 }

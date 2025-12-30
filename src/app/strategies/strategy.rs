@@ -20,6 +20,23 @@ pub struct MarketContext {
     pub current_volume: f64,
 }
 
+/// Mode de trading pour une stratégie
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum TradingMode {
+    /// Permet uniquement les achats
+    BuyOnly,
+    /// Permet uniquement les ventes
+    SellOnly,
+    /// Permet les achats et les ventes
+    Both,
+}
+
+impl Default for TradingMode {
+    fn default() -> Self {
+        TradingMode::Both
+    }
+}
+
 /// Signal généré par une stratégie
 #[derive(Debug, Clone)]
 pub enum TradingSignal {

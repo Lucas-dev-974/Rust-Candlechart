@@ -162,6 +162,7 @@ pub enum Message {
     ToggleStrategyConfig(String), // Ouvre/ferme le panneau de configuration d'une stratégie
     UpdateStrategyParamInput { strategy_id: String, param_name: String, value: String }, // Valeur temporaire dans l'input
     ToggleStrategyTimeframe { strategy_id: String, timeframe: String }, // Ajoute/retire un timeframe de la sélection
+    UpdateStrategyTradingMode { strategy_id: String, trading_mode: crate::app::strategies::strategy::TradingMode }, // Met à jour le mode de trading temporairement
     ApplyStrategyConfig(String), // Applique les modifications d'une stratégie
     CancelStrategyConfig(String), // Annule les modifications d'une stratégie
 }

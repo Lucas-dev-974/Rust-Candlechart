@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use crate::app::strategies::manager::{StrategyStatus, RegisteredStrategy};
-use crate::app::strategies::strategy::TradingStrategy;
+use crate::app::strategies::strategy::{TradingStrategy, TradingMode};
 
 /// Type de stratégie (pour la désérialisation)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,6 +32,9 @@ pub struct StrategyPersistenceState {
     pub enabled: bool,
     /// Timeframes autorisés (None = tous les timeframes)
     pub allowed_timeframes: Option<Vec<String>>,
+    /// Mode de trading (achats uniquement, ventes uniquement, ou les deux)
+    #[serde(default)]
+    pub trading_mode: TradingMode,
 }
 
 /// État complet de toutes les stratégies à sauvegarder
@@ -100,6 +103,7 @@ pub fn strategy_to_persistence(
         status: reg.status.clone(),
         enabled: reg.enabled,
         allowed_timeframes: reg.allowed_timeframes.clone(),
+        trading_mode: reg.trading_mode,
     })
 }
 
@@ -144,6 +148,7 @@ pub fn persistence_to_strategy(
         status: state.status.clone(),
         enabled: state.enabled,
         allowed_timeframes: state.allowed_timeframes.clone(),
+        trading_mode: state.trading_mode,
     })
 }
 

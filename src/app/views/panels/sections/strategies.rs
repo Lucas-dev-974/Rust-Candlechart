@@ -272,6 +272,76 @@ pub fn view_strategies(app: &ChartApp) -> Element<'_, Message> {
                 
                 config_panel = config_panel.push(timeframe_rows);
                 
+                // Section Mode de Trading
+                config_panel = config_panel.push(
+                    Space::new().height(Length::Fixed(10.0))
+                );
+                
+                config_panel = config_panel.push(
+                    text("Mode de trading")
+                        .size(14)
+                        .color(colors::TEXT_PRIMARY)
+                );
+                
+                // Récupérer le mode de trading actuel (depuis l'état d'édition ou la valeur réelle)
+                let current_trading_mode = if let Some(editing) = editing_state {
+                    editing.trading_mode
+                } else {
+                    reg.trading_mode
+                };
+                
+                let buy_only_id = id.clone();
+                let sell_only_id = id.clone();
+                let both_id = id.clone();
+                
+                config_panel = config_panel.push(
+                    row![
+                        button(if current_trading_mode == crate::app::strategies::strategy::TradingMode::BuyOnly {
+                            "✓ Achats uniquement"
+                        } else {
+                            "Achats uniquement"
+                        })
+                            .on_press(Message::UpdateStrategyTradingMode {
+                                strategy_id: buy_only_id.clone(),
+                                trading_mode: crate::app::strategies::strategy::TradingMode::BuyOnly,
+                            })
+                            .style(if current_trading_mode == crate::app::strategies::strategy::TradingMode::BuyOnly {
+                                primary_button_style
+                            } else {
+                                secondary_button_style
+                            }),
+                        button(if current_trading_mode == crate::app::strategies::strategy::TradingMode::SellOnly {
+                            "✓ Ventes uniquement"
+                        } else {
+                            "Ventes uniquement"
+                        })
+                            .on_press(Message::UpdateStrategyTradingMode {
+                                strategy_id: sell_only_id.clone(),
+                                trading_mode: crate::app::strategies::strategy::TradingMode::SellOnly,
+                            })
+                            .style(if current_trading_mode == crate::app::strategies::strategy::TradingMode::SellOnly {
+                                primary_button_style
+                            } else {
+                                secondary_button_style
+                            }),
+                        button(if current_trading_mode == crate::app::strategies::strategy::TradingMode::Both {
+                            "✓ Achats et ventes"
+                        } else {
+                            "Achats et ventes"
+                        })
+                            .on_press(Message::UpdateStrategyTradingMode {
+                                strategy_id: both_id.clone(),
+                                trading_mode: crate::app::strategies::strategy::TradingMode::Both,
+                            })
+                            .style(if current_trading_mode == crate::app::strategies::strategy::TradingMode::Both {
+                                primary_button_style
+                            } else {
+                                secondary_button_style
+                            }),
+                    ]
+                    .spacing(5)
+                );
+                
                 // Boutons Appliquer/Annuler
                 config_panel = config_panel.push(
                     Space::new().height(Length::Fixed(10.0))

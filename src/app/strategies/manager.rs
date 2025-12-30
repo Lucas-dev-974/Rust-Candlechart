@@ -1,7 +1,7 @@
 //! Gestionnaire de stratégies de trading
 
 use std::collections::HashMap;
-use crate::app::strategies::strategy::{TradingStrategy, MarketContext, StrategyResult};
+use crate::app::strategies::strategy::{TradingStrategy, MarketContext, StrategyResult, TradingMode};
 use serde::{Serialize, Deserialize};
 
 /// État d'une stratégie
@@ -23,6 +23,8 @@ pub struct RegisteredStrategy {
     pub enabled: bool,
     /// Timeframes autorisés pour cette stratégie (None = tous les timeframes)
     pub allowed_timeframes: Option<Vec<String>>,
+    /// Mode de trading (achats uniquement, ventes uniquement, ou les deux)
+    pub trading_mode: TradingMode,
 }
 
 // Implémentation manuelle de Debug pour RegisteredStrategy
@@ -33,6 +35,7 @@ impl std::fmt::Debug for RegisteredStrategy {
             .field("status", &self.status)
             .field("enabled", &self.enabled)
             .field("allowed_timeframes", &self.allowed_timeframes)
+            .field("trading_mode", &self.trading_mode)
             .finish()
     }
 }
@@ -73,6 +76,7 @@ impl StrategyManager {
             status: StrategyStatus::Inactive,
             enabled: false,
             allowed_timeframes,
+            trading_mode: TradingMode::Both,
         });
         
         id
@@ -129,6 +133,16 @@ impl StrategyManager {
     pub fn set_strategy_timeframes(&mut self, id: &str, timeframes: Option<Vec<String>>) -> Result<(), String> {
         if let Some(reg) = self.strategies.get_mut(id) {
             reg.allowed_timeframes = timeframes;
+            Ok(())
+        } else {
+            Err(format!("Stratégie {} introuvable", id))
+        }
+    }
+    
+    /// Met à jour le mode de trading pour une stratégie
+    pub fn set_strategy_trading_mode(&mut self, id: &str, trading_mode: TradingMode) -> Result<(), String> {
+        if let Some(reg) = self.strategies.get_mut(id) {
+            reg.trading_mode = trading_mode;
             Ok(())
         } else {
             Err(format!("Stratégie {} introuvable", id))
