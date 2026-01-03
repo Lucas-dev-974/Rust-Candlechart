@@ -65,20 +65,38 @@ pub fn calculate_macd(
         .collect();
 
     // Calculer la ligne de signal (EMA de la ligne MACD)
+    // IMPORTANT: La ligne de signal ne doit être calculée qu'à partir du moment
+    // où la ligne MACD est valide (après slow_period - 1 valeurs)
     let mut signal_line: Vec<f64> = Vec::with_capacity(n);
-    for &macd_val in &macd_line {
-        signal_line.push(signal_ema_calc.feed(macd_val));
+    
+    // Les premières valeurs de la ligne MACD ne sont pas valides avant slow_period - 1
+    // On ne commence à calculer la ligne de signal qu'à partir de là
+    for i in 0..n {
+        if i < slow_period - 1 {
+            // Avant que la ligne MACD soit valide, on ne peut pas calculer la ligne de signal
+            signal_line.push(0.0); // Valeur temporaire, ne sera pas utilisée
+        } else {
+            // À partir de slow_period - 1, la ligne MACD est valide, on peut calculer la ligne de signal
+            signal_line.push(signal_ema_calc.feed(macd_line[i]));
+        }
     }
     
     // Construire le résultat
     let mut result: Vec<Option<MacdValue>> = Vec::with_capacity(n);
     
-    // Préremplir les valeurs manquantes avant que la slow EMA soit disponible
-    for _ in 0..(slow_period - 1) {
+    // Le premier index valide est après que :
+    // 1. La slow EMA soit disponible (slow_period - 1)
+    // 2. La ligne de signal soit disponible (signal_period valeurs de MACD valide)
+    // Donc: slow_period - 1 + signal_period - 1 = slow_period + signal_period - 2
+    let first_valid_index = (slow_period - 1) + (signal_period - 1);
+    
+    // Préremplir les valeurs manquantes avant que toutes les données soient disponibles
+    for _ in 0..first_valid_index {
         result.push(None);
     }
 
-    for i in (slow_period - 1)..n {
+    // À partir de first_valid_index, toutes les valeurs sont valides
+    for i in first_valid_index..n {
         let macd = macd_line[i];
         let signal = signal_line[i];
         let histogram = macd - signal;
@@ -109,16 +127,26 @@ mod tests {
         let macd = calculate_macd(&candles, MACD_FAST_PERIOD, MACD_SLOW_PERIOD, MACD_SIGNAL_PERIOD);
         assert_eq!(macd.len(), candles.len());
 
-        // Les premières valeurs (slow_period - 1) doivent être None
-        for i in 0..(MACD_SLOW_PERIOD - 1) {
+        // Le premier index valide est après slow_period + signal_period - 2
+        // car on a besoin de slow_period pour la ligne MACD et signal_period pour la ligne de signal
+        let first_valid_index = (MACD_SLOW_PERIOD - 1) + (MACD_SIGNAL_PERIOD - 1);
+        
+        // Les premières valeurs doivent être None jusqu'à ce que toutes les données soient disponibles
+        for i in 0..first_valid_index {
             assert!(macd[i].is_none(), "index {} should be None", i);
         }
+
+        // À partir de first_valid_index, les valeurs doivent exister
+        assert!(macd[first_valid_index].is_some(), "index {} should have a value", first_valid_index);
 
         // La dernière valeur doit exister
         assert!(macd.last().and_then(|o| o.as_ref()).is_some());
         if let Some(Some(last)) = macd.last() {
             // Histogramme doit être fini
             assert!(last.histogram.is_finite());
+            // Les valeurs MACD et signal doivent être finies
+            assert!(last.macd_line.is_finite());
+            assert!(last.signal_line.is_finite());
         }
     }
 }
