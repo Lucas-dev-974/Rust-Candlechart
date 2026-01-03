@@ -1,19 +1,14 @@
 mod finance_chart;
 mod app;
 
-use iced::{Task, Size, window, exit, Element};
-use std::sync::Arc;
-use std::collections::HashSet;
+use iced::{Task, window, Element};
 use finance_chart::{
-    YAxisMessage, XAxisMessage, ToolsPanelMessage, SeriesPanelMessage,
-    BinanceProvider,
+    SeriesPanelMessage,
     core::{SeriesId, Candle},
-    ProviderType,
-    settings::color_fields,
 };
 
 // Utiliser les constantes du module app::utils::constants
-use app::utils::constants::{SETTINGS_WINDOW_WIDTH, SETTINGS_WINDOW_HEIGHT};
+// Note: SETTINGS_WINDOW_WIDTH et SETTINGS_WINDOW_HEIGHT ne sont plus utilisés
 
 fn main() -> iced::Result {
     iced::daemon(ChartApp::new, ChartApp::update, ChartApp::view)
@@ -24,7 +19,7 @@ fn main() -> iced::Result {
 }
 
 // Utiliser ChartApp et Message du module app
-use app::{ChartApp, Message, window_manager::WindowType, state::AccountType};
+use app::{ChartApp, Message, window_manager::WindowType};
 
 impl ChartApp {
 
@@ -200,13 +195,6 @@ impl ChartApp {
             Message::EnableStrategy(id) => handle_enable_strategy(self, id),
             Message::DisableStrategy(id) => handle_disable_strategy(self, id),
             Message::RemoveStrategy(id) => handle_remove_strategy(self, id),
-            Message::UpdateStrategyParameter { strategy_id, param_name, value } => {
-                handle_update_strategy_parameter(self, strategy_id, param_name, value)
-            }
-            Message::UpdateStrategyTimeframes { strategy_id, timeframes } => {
-                handle_update_strategy_timeframes(self, strategy_id, timeframes)
-            }
-            Message::ExecuteStrategies => execute_strategies(self),
             Message::ToggleStrategyConfig(strategy_id) => {
                 handle_toggle_strategy_config(self, strategy_id)
             }

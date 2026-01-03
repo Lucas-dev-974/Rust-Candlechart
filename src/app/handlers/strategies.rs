@@ -206,48 +206,6 @@ pub fn handle_remove_strategy(app: &mut ChartApp, id: String) -> Task<crate::app
     Task::none()
 }
 
-/// Met à jour un paramètre d'une stratégie
-pub fn handle_update_strategy_parameter(
-    app: &mut ChartApp,
-    strategy_id: String,
-    param_name: String,
-    value: f64,
-) -> Task<crate::app::messages::Message> {
-    if let Some(reg) = app.strategy_manager.get_strategy_mut(&strategy_id) {
-        if let Err(e) = reg.strategy.update_parameter(&param_name, value) {
-            eprintln!("❌ Erreur mise à jour paramètre {}: {}", param_name, e);
-        } else {
-            println!("✅ Paramètre {} mis à jour: {:.2}", param_name, value);
-            save_strategies(app);
-        }
-    } else {
-        eprintln!("❌ Stratégie {} introuvable", strategy_id);
-    }
-    Task::none()
-}
-
-/// Met à jour les timeframes autorisés d'une stratégie
-pub fn handle_update_strategy_timeframes(
-    app: &mut ChartApp,
-    strategy_id: String,
-    timeframes: Option<Vec<String>>,
-) -> Task<crate::app::messages::Message> {
-    if let Err(e) = app.strategy_manager.set_strategy_timeframes(&strategy_id, timeframes.clone()) {
-        eprintln!("❌ Erreur mise à jour timeframes: {}", e);
-    } else {
-        match &timeframes {
-            Some(tfs) => {
-                println!("✅ Timeframes mis à jour pour {}: {:?}", strategy_id, tfs);
-            }
-            None => {
-                println!("✅ Timeframes supprimés pour {} (tous les timeframes autorisés)", strategy_id);
-            }
-        }
-        save_strategies(app);
-    }
-    Task::none()
-}
-
 /// Ouvre ou ferme le panneau de configuration d'une stratégie
 pub fn handle_toggle_strategy_config(app: &mut ChartApp, strategy_id: String) -> Task<crate::app::messages::Message> {
     use crate::app::app_state::StrategyEditingState;
@@ -344,8 +302,6 @@ pub fn handle_toggle_strategy_timeframe(
 
 /// Applique les modifications d'une stratégie
 pub fn handle_apply_strategy_config(app: &mut ChartApp, strategy_id: String) -> Task<crate::app::messages::Message> {
-    use crate::app::app_state::StrategyEditingState;
-    
     // Récupérer l'état d'édition
     let Some(editing_state) = app.editing_strategies.get(&strategy_id) else {
         return Task::none();
@@ -427,7 +383,6 @@ pub fn handle_cancel_strategy_config(app: &mut ChartApp, strategy_id: String) ->
         editing.expanded = false;
         // Réinitialiser les valeurs avec les valeurs actuelles
         if let Some(reg) = app.strategy_manager.get_strategy(&strategy_id) {
-            use std::collections::HashMap;
             editing.param_values.clear();
             for param in reg.strategy.parameters() {
                 editing.param_values.insert(param.name, format!("{:.2}", param.value));

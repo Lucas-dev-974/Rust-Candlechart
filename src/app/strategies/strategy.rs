@@ -1,7 +1,7 @@
 //! Trait de base pour les stratégies de trading
 
 use crate::finance_chart::core::{Candle, SeriesId};
-use crate::app::data::{TradeType, OrderType};
+use crate::app::data::OrderType;
 
 /// Contexte de marché fourni à une stratégie
 #[derive(Debug, Clone)]

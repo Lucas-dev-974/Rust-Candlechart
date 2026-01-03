@@ -82,30 +82,6 @@ impl<'a> ChartProgram<'a> {
         }
     }
     
-    pub fn with_trades(
-        chart_state: &'a ChartState,
-        tools_state: &'a ToolsState,
-        settings_state: &'a SettingsState,
-        chart_style: &'a ChartStyle,
-        panel_focused: bool,
-        trades: &'a [crate::app::data::Trade],
-        current_symbol: &'a str,
-    ) -> Self {
-        Self { 
-            chart_state, 
-            tools_state, 
-            settings_state, 
-            chart_style, 
-            panel_focused,
-            trades: Some(trades),
-            current_symbol: Some(current_symbol),
-            trading_state: None,
-            bollinger_enabled: false,
-            ma_enabled: false,
-            indicator_params: None,
-        }
-    }
-    
     pub fn with_trading_state(
         chart_state: &'a ChartState,
         tools_state: &'a ToolsState,
@@ -901,30 +877,6 @@ pub fn chart<'a>(
     indicator_params: Option<&'a crate::app::state::IndicatorParams>,
 ) -> Element<'a, ChartMessage> {
     let mut program = ChartProgram::new(chart_state, tools_state, settings_state, chart_style, panel_focused);
-    program.bollinger_enabled = bollinger_enabled;
-    program.ma_enabled = ma_enabled;
-    program.indicator_params = indicator_params;
-    Canvas::new(program)
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .into()
-}
-
-/// Crée un graphique avec les marqueurs de trades
-pub fn chart_with_trades<'a>(
-    chart_state: &'a ChartState,
-    tools_state: &'a ToolsState,
-    settings_state: &'a SettingsState,
-    chart_style: &'a ChartStyle,
-    panel_focused: bool,
-    trades: &'a [crate::app::data::Trade],
-    current_symbol: &'a str,
-    bollinger_enabled: bool,
-    ma_enabled: bool,
-    // Paramètres des indicateurs
-    indicator_params: Option<&'a crate::app::state::IndicatorParams>,
-) -> Element<'a, ChartMessage> {
-    let mut program = ChartProgram::with_trades(chart_state, tools_state, settings_state, chart_style, panel_focused, trades, current_symbol);
     program.bollinger_enabled = bollinger_enabled;
     program.ma_enabled = ma_enabled;
     program.indicator_params = indicator_params;

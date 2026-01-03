@@ -6,7 +6,6 @@
 pub mod calc;
 pub mod data;
 
-pub use calc::{calculate_moving_average, MA_PERIOD};
 pub use data::{
     calculate_ma_data,
     calculate_all_ma_values,

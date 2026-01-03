@@ -37,9 +37,6 @@ impl Default for UiState {
 }
 
 impl UiState {
-    pub fn new() -> Self {
-        Self::default()
-    }
 }
 
 

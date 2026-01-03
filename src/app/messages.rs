@@ -156,9 +156,6 @@ pub enum Message {
     EnableStrategy(String),
     DisableStrategy(String),
     RemoveStrategy(String),
-    UpdateStrategyParameter { strategy_id: String, param_name: String, value: f64 },
-    UpdateStrategyTimeframes { strategy_id: String, timeframes: Option<Vec<String>> },
-    ExecuteStrategies,
     // Messages pour l'interface de paramétrage
     ToggleStrategyConfig(String), // Ouvre/ferme le panneau de configuration d'une stratégie
     UpdateStrategyParamInput { strategy_id: String, param_name: String, value: String }, // Valeur temporaire dans l'input

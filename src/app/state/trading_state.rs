@@ -84,15 +84,5 @@ impl TradingState {
             self.stop_loss = format!("{:.2}", stop_loss_value);
         }
     }
-    
-    /// Force la mise à jour de TP et SL avec 15% d'écart par rapport au prix actuel
-    /// Écrase les valeurs existantes
-    pub fn force_update_tp_sl_from_price(&mut self, current_price: f64) {
-        let take_profit_value = current_price * 1.15;
-        let stop_loss_value = current_price * 0.85;
-        
-        self.take_profit = format!("{:.2}", take_profit_value);
-        self.stop_loss = format!("{:.2}", stop_loss_value);
-    }
 }
 

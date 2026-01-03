@@ -208,7 +208,7 @@ pub fn handle_stop_download(app: &mut ChartApp, series_id: SeriesId) -> Task<cra
 
 /// Gère la sauvegarde des séries complétée
 pub fn handle_save_series_complete(
-    app: &mut ChartApp,
+    _app: &mut ChartApp,
     results: Vec<(String, Result<(), String>)>
 ) -> Task<crate::app::messages::Message> {
     for (series_name, result) in results {

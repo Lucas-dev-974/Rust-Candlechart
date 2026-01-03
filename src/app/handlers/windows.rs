@@ -43,7 +43,6 @@ pub fn handle_open_downloads(app: &mut ChartApp) -> Task<crate::app::messages::M
 
 /// Gère la fermeture d'une fenêtre
 pub fn handle_window_closed(app: &mut ChartApp, id: window::Id) -> Task<crate::app::messages::Message> {
-    use crate::app::messages::Message;
     use iced::exit;
     
     match app.windows.get_window_type(id) {

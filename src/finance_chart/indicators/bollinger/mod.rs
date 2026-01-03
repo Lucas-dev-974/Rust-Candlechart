@@ -7,12 +7,10 @@
 pub mod calc;
 pub mod data;
 
-pub use calc::{calculate_bollinger_bands, BollingerValue, BOLLINGER_PERIOD, BOLLINGER_STD_DEV};
+pub use calc::BollingerValue;
 pub use data::{
     calculate_bollinger_data,
     calculate_all_bollinger_values,
-    calculate_bollinger_range,
-    get_last_bollinger_value,
 };
 
 

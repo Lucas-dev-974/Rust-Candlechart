@@ -2,12 +2,10 @@
 
 use iced::Task;
 use crate::app::app_state::ChartApp;
-use crate::finance_chart::core::SeriesId;
 use crate::app::persistence::TimeframePersistenceState;
 
 /// Gère la sélection d'une série par nom
 pub fn handle_select_series_by_name(app: &mut ChartApp, series_name: String) -> Task<crate::app::messages::Message> {
-    use crate::app::messages::Message;
     
     println!("🔄 Sélection de la série: {}", series_name);
     
@@ -73,7 +71,6 @@ pub fn handle_load_series_complete(
     app: &mut ChartApp,
     result: Result<Vec<crate::finance_chart::core::SeriesData>, String>
 ) -> Task<crate::app::messages::Message> {
-    use crate::app::messages::Message;
     
     match result {
         Ok(series_list) => {

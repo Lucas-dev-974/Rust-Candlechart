@@ -107,7 +107,6 @@ pub fn view_strategies(app: &ChartApp) -> Element<'_, Message> {
             
             let id_clone = id.clone();
             let id_clone2 = id.clone();
-            let id_clone3 = id.clone();
             let id_clone4 = id.clone();
             
             // Récupérer l'état d'édition
