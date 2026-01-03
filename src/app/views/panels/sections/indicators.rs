@@ -1,6 +1,6 @@
 //! Section "Indicateurs"
 
-use iced::widget::{button, column, container, row, scrollable, text, text_input, Space};
+use iced::widget::{button, column, container, row, scrollable, text, text_input, Space, pick_list};
 use iced::{Element, Length, Color};
 use crate::app::{
     app_state::ChartApp,
@@ -136,6 +136,27 @@ pub fn view_indicators(app: &ChartApp) -> Element<'_, Message> {
                             .padding(4)
                             .width(Length::Fixed(60.0))
                             .size(11)
+                    ]
+                    .spacing(8)
+                    .align_y(iced::Alignment::Center),
+                    row![
+                        text("Méthode:")
+                            .size(11)
+                            .color(colors::TEXT_SECONDARY),
+                        Space::new().width(Length::Fill),
+                        pick_list(
+                            vec!["Wilder".to_string(), "Simple".to_string()],
+                            Some(app.indicators.params.rsi_method.as_str().to_string()),
+                            move |selected: String| {
+                                if let Some(method) = crate::app::state::RSIMethod::from_str(&selected) {
+                                    Message::UpdateRSIMethod(method)
+                                } else {
+                                    Message::ClearPanelFocus
+                                }
+                            }
+                        )
+                        .width(Length::Fixed(100.0))
+                        .text_size(11.0)
                     ]
                     .spacing(8)
                     .align_y(iced::Alignment::Center)

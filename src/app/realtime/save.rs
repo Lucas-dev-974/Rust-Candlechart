@@ -125,3 +125,5 @@ pub fn save_series_async(app: &mut ChartApp, updated_series: HashSet<SeriesId>) 
 
 
 
+
+

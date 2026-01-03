@@ -69,7 +69,7 @@ pub fn build_indicator_panels<'a>(app: &'a ChartApp, layout_items: &mut Vec<Elem
         let handle_height = 6.0;
         let chart_height = app.ui.panels.rsi.size - handle_height;
         
-        let rsi_panel = rsi_chart(&app.chart_state);
+        let rsi_panel = rsi_chart(&app.chart_state, &app.indicators.params);
         let rsi_y_axis_panel = rsi_y_axis(&app.chart_state, chart_height);
         
         // Créer une row avec le graphique RSI + son axe Y

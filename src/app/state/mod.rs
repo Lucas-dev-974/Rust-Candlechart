@@ -17,7 +17,7 @@ pub use account_info::AccountInfo;
 pub use account_type::{AccountType, AccountTypeState};
 pub use bottom_panel_sections::{BottomPanelSection, BottomPanelSectionsState};
 pub use trading_state::TradingState;
-pub use indicator_params::IndicatorParams;
+pub use indicator_params::{IndicatorParams, RSIMethod};
 pub use ui_state::UiState;
 pub use indicator_state::IndicatorState;
 pub use loaders::{

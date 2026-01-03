@@ -86,6 +86,7 @@ pub enum Message {
     ToggleMovingAverage,
     // Messages pour modifier les paramètres des indicateurs
     UpdateRSIPeriod(usize),
+    UpdateRSIMethod(crate::app::state::RSIMethod),
     UpdateMACDFastPeriod(usize),
     UpdateMACDSlowPeriod(usize),
     UpdateMACDSignalPeriod(usize),

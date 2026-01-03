@@ -9,6 +9,7 @@ use iced::mouse::Cursor;
 use crate::finance_chart::state::ChartState;
 use crate::finance_chart::render::render_rsi_crosshair;
 use crate::finance_chart::render::crosshair::CrosshairStyle;
+use crate::app::state::IndicatorParams;
 use super::calc::{RSI_OVERBOUGHT, RSI_OVERSOLD};
 use super::data::{calculate_all_rsi_values, calculate_rsi_data, get_last_rsi_value};
 use iced::widget::canvas::Text;
@@ -16,11 +17,12 @@ use iced::widget::canvas::Text;
 /// Program Iced pour le rendu du RSI
 pub struct RSIProgram<'a> {
     chart_state: &'a ChartState,
+    params: &'a IndicatorParams,
 }
 
 impl<'a> RSIProgram<'a> {
-    pub fn new(chart_state: &'a ChartState) -> Self {
-        Self { chart_state }
+    pub fn new(chart_state: &'a ChartState, params: &'a IndicatorParams) -> Self {
+        Self { chart_state, params }
     }
 }
 
@@ -42,7 +44,7 @@ impl<'a> Program<crate::app::messages::Message> for RSIProgram<'a> {
         frame.fill(&background, Color::from_rgb(0.10, 0.08, 0.10)); // Légèrement plus rouge que le volume
 
         // Calculer toutes les valeurs RSI d'abord (sur toutes les bougies, pas seulement visibles)
-        let all_rsi_values = match calculate_all_rsi_values(self.chart_state) {
+        let all_rsi_values = match calculate_all_rsi_values(self.chart_state, self.params) {
             Some(values) => values,
             None => return vec![frame.into_geometry()],
         };
@@ -165,7 +167,7 @@ impl<'a> Program<crate::app::messages::Message> for RSIProgram<'a> {
         );
 
         // Dessiner le label RSI dans la zone du chart (à droite), afin qu'il ne soit pas tronqué
-        if let Some(current_rsi) = get_last_rsi_value(self.chart_state, Some(&all_rsi_values)) {
+        if let Some(current_rsi) = get_last_rsi_value(self.chart_state, Some(&all_rsi_values), Some(self.params)) {
             let label = format!("RSI: {:.1}", current_rsi);
             let text = Text {
                 content: label,
@@ -249,8 +251,8 @@ impl<'a> Program<crate::app::messages::Message> for RSIProgram<'a> {
 }
 
 /// Crée un widget canvas pour le RSI
-pub fn rsi_chart<'a>(chart_state: &'a ChartState) -> Element<'a, crate::app::messages::Message> {
-    Canvas::new(RSIProgram::new(chart_state))
+pub fn rsi_chart<'a>(chart_state: &'a ChartState, params: &'a IndicatorParams) -> Element<'a, crate::app::messages::Message> {
+    Canvas::new(RSIProgram::new(chart_state, params))
         .width(Length::Fill)
         .height(Length::Fill)
         .into()

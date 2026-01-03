@@ -39,6 +39,11 @@ pub fn handle_update_rsi_period(app: &mut ChartApp, period: usize) -> Task<crate
     Task::none()
 }
 
+pub fn handle_update_rsi_method(app: &mut ChartApp, method: crate::app::state::RSIMethod) -> Task<crate::app::messages::Message> {
+    app.indicators.params.rsi_method = method;
+    Task::none()
+}
+
 pub fn handle_update_macd_fast_period(app: &mut ChartApp, period: usize) -> Task<crate::app::messages::Message> {
     app.indicators.params.macd_fast_period = period;
     Task::none()

@@ -138,6 +138,7 @@ impl ChartApp {
             Message::ToggleBollingerBands => handle_toggle_bollinger_bands(self),
             Message::ToggleMovingAverage => handle_toggle_moving_average(self),
             Message::UpdateRSIPeriod(period) => handle_update_rsi_period(self, period),
+            Message::UpdateRSIMethod(method) => handle_update_rsi_method(self, method),
             Message::UpdateMACDFastPeriod(period) => handle_update_macd_fast_period(self, period),
             Message::UpdateMACDSlowPeriod(period) => handle_update_macd_slow_period(self, period),
             Message::UpdateMACDSignalPeriod(period) => handle_update_macd_signal_period(self, period),
