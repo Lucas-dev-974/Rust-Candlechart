@@ -129,10 +129,3 @@ pub fn download_batch(app: &mut ChartApp, series_id: &SeriesId) -> Task<Message>
         },
     )
 }
-
-
-
-
-
-
-
