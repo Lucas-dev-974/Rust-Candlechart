@@ -86,12 +86,13 @@ mod tests {
         let candles: Vec<Candle> = (0..30)
             .map(|i| {
                 Candle::new(
-                    1000 + i * 60,
+                    (1000 + i * 60) as i64,
                     100.0,
                     100.0,
                     100.0,
                     100.0,
-                ).unwrap()
+                    1000.0,
+                )
             })
             .collect();
         
@@ -115,12 +116,13 @@ mod tests {
         let candles: Vec<Candle> = (0..10)
             .map(|i| {
                 Candle::new(
-                    1000 + i * 60,
+                    (1000 + i * 60) as i64,
                     100.0,
                     100.0,
                     100.0,
                     100.0,
-                ).unwrap()
+                    1000.0,
+                )
             })
             .collect();
         
@@ -140,12 +142,13 @@ mod tests {
             .map(|i| {
                 let price = 100.0 + i as f64;
                 Candle::new(
-                    1000 + i * 60,
+                    (1000 + i * 60) as i64,
                     price,
                     price,
                     price,
                     price,
-                ).unwrap()
+                    1000.0,
+                )
             })
             .collect();
         
