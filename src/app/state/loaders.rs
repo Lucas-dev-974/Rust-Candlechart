@@ -77,7 +77,7 @@ pub fn load_trading_state() -> TradingState {
                 limit_price: String::new(),
                 take_profit: String::new(),
                 stop_loss: String::new(),
-                tp_sl_enabled: true,
+                tp_sl_enabled: false,  // Désactivé par défaut pour les ordres Market
                 trade_history,
             }
         }

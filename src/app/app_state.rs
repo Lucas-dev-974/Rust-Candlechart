@@ -156,6 +156,7 @@ impl ChartApp {
                     section_context_menu: None,
                     drag_overlay: None,
                     indicators_panel_open: false,
+                    backtest_state: crate::app::state::backtest::BacktestState::new(),
                 },
                 account_type: AccountTypeState::new(),
                 account_info: AccountInfo::new(),
@@ -203,16 +204,26 @@ impl ChartApp {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
+        let mut subscriptions = vec![window::close_events().map(Message::WindowClosed)];
+        
         if self.realtime_enabled {
             // Subscription pour les mises à jour en temps réel
-            Subscription::batch(vec![
+            subscriptions.push(
                 iced::time::every(Duration::from_secs_f64(REALTIME_UPDATE_INTERVAL_SECS))
-                    .map(|_| Message::RealtimeUpdate),
-                window::close_events().map(Message::WindowClosed),
-            ])
-        } else {
-            window::close_events().map(Message::WindowClosed)
+                    .map(|_| Message::RealtimeUpdate)
+            );
         }
+        
+        // Subscription pour les ticks du backtest si en cours de lecture
+        if self.ui.backtest_state.is_playing {
+            let speed_ms = self.ui.backtest_state.playback_speed_ms;
+            subscriptions.push(
+                iced::time::every(Duration::from_millis(speed_ms))
+                    .map(|_| Message::BacktestTick)
+            );
+        }
+        
+        Subscription::batch(subscriptions)
     }
 }
 

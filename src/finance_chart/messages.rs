@@ -11,7 +11,7 @@ use super::tools::EditMode;
 pub enum ChartMessage {
     // === Navigation ===
     /// Démarrer un pan (drag)
-    StartPan { position: Point },
+    StartPan { position: Point, time: Option<i64> },
     /// Mettre à jour le pan en cours
     UpdatePan { position: Point },
     /// Mettre à jour le pan horizontal uniquement (pour les indicateurs)
@@ -82,6 +82,10 @@ pub enum ChartMessage {
     // === Resize ===
     /// Mise à jour de la taille du viewport (et des bounds pour convertir positions absolues en relatives)
     Resize { width: f32, height: f32, x: f32, y: f32 },
+    
+    // === Backtest ===
+    /// Sélectionner une date de départ pour le backtest (clic sur le graphique)
+    SelectBacktestDate { time: i64 },
 }
 
 /// Messages émis par l'axe Y

@@ -11,6 +11,7 @@ mod indicator_params;
 pub mod loaders;
 mod ui_state;
 mod indicator_state;
+pub mod backtest;
 
 pub use panel_state::{PanelsState, MIN_PANEL_SIZE};
 pub use account_info::AccountInfo;

@@ -25,6 +25,7 @@ mod helpers;
 mod downloads_view;
 mod context_menu_capture;
 mod crosshair_overlay;
+mod backtest_overlay;
 
 // Réexporter les fonctions publiques pour compatibilité
 pub use main_view::view_main;

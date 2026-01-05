@@ -22,6 +22,8 @@ pub enum BottomPanelSection {
     TradeHistory,
     /// Section pour les stratégies de trading automatisées
     Strategies,
+    /// Section pour le backtest
+    Backtest,
 }
 
 impl BottomPanelSection {
@@ -35,6 +37,7 @@ impl BottomPanelSection {
             Self::Account,
             Self::TradeHistory,
             Self::Strategies,
+            Self::Backtest,
         ]
     }
     
@@ -48,6 +51,7 @@ impl BottomPanelSection {
             Self::Account => "Compte",
             Self::TradeHistory => "Historique",
             Self::Strategies => "Stratégies",
+            Self::Backtest => "Backtest",
         }
     }
 }

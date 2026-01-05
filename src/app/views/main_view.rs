@@ -16,6 +16,7 @@ use super::helpers::corner_settings_button;
 use super::indicators::chart_with_indicators_overlay;
 use super::panels::{view_right_panel, view_bottom_panel, build_indicator_panels, section_context_menu};
 use super::crosshair_overlay::crosshair_overlay;
+use super::backtest_overlay;
 
 /// Composant qui regroupe toutes les sections du graphique
 fn view_chart_component(app: &ChartApp) -> Element<'_, Message> {
@@ -35,6 +36,7 @@ fn view_chart_component(app: &ChartApp) -> Element<'_, Message> {
 
             // Utiliser chart_with_trades_and_trading si on est en mode paper et qu'il y a des trades
             // Sinon utiliser chart_with_trading pour afficher les ordres limit même sans trades
+            let backtest_state = Some(&app.ui.backtest_state);
             if app.account_type.is_demo() && !current_symbol.is_empty() {
                 if !trades.is_empty() {
                     chart_with_trades_and_trading(
@@ -49,6 +51,7 @@ fn view_chart_component(app: &ChartApp) -> Element<'_, Message> {
                         app.indicators.bollinger_bands_enabled,
                         app.indicators.moving_average_enabled,
                         Some(&app.indicators.params),
+                        backtest_state,
                     )
                     .map(Message::Chart)
                 } else {
@@ -63,11 +66,12 @@ fn view_chart_component(app: &ChartApp) -> Element<'_, Message> {
                         app.indicators.bollinger_bands_enabled,
                         app.indicators.moving_average_enabled,
                         Some(&app.indicators.params),
+                        backtest_state,
                     )
                     .map(Message::Chart)
                 }
             } else {
-                chart(&app.chart_state, &app.tools_state, &app.settings_state, &app.chart_style, panel_focused, app.indicators.bollinger_bands_enabled, app.indicators.moving_average_enabled, Some(&app.indicators.params))
+                chart(&app.chart_state, &app.tools_state, &app.settings_state, &app.chart_style, panel_focused, app.indicators.bollinger_bands_enabled, app.indicators.moving_average_enabled, Some(&app.indicators.params), backtest_state)
                     .map(Message::Chart)
             }
         })
@@ -134,6 +138,14 @@ fn view_chart_component(app: &ChartApp) -> Element<'_, Message> {
             .align_y(iced::alignment::Vertical::Top),
         // Overlay pour la barre verticale synchronisée du crosshair
         container(crosshair_overlay(&app.chart_state))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(|_theme| container::Style {
+                background: None,
+                ..Default::default()
+            }),
+        // Overlay pour la barre verticale de sélection du backtest
+        container(super::backtest_overlay::backtest_overlay(&app.chart_state, &app.ui.backtest_state))
             .width(Length::Fill)
             .height(Length::Fill)
             .style(|_theme| container::Style {

@@ -12,6 +12,7 @@ mod trading;
 mod realtime;
 mod panels;
 pub mod strategies;
+mod backtest;
 
 pub use handlers::handle_chart_message;
 pub use windows::{
@@ -30,6 +31,7 @@ pub use trading::*;
 pub use realtime::*;
 pub use panels::*;
 pub use strategies::*;
+pub use backtest::*;
 
 
 

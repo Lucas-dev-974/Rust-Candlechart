@@ -8,13 +8,29 @@ use crate::finance_chart::{
     tools::Action as HistoryAction,
 };
 use crate::app::app_state::ChartApp;
+use crate::app::state::BottomPanelSection;
 
 /// Gère les messages du graphique
 pub fn handle_chart_message(app: &mut ChartApp, msg: ChartMessage) {
     match msg {
         // === Navigation ===
-        ChartMessage::StartPan { position } => {
+        ChartMessage::StartPan { position, time } => {
             app.chart_state.start_pan(position);
+            // Si un time est fourni, également gérer la sélection de date de backtest
+            if let Some(time) = time {
+                use crate::app::state::BottomPanelSection;
+                if app.ui.bottom_panel_sections.active_bottom_section == BottomPanelSection::Backtest {
+                    // Ne pas permettre de redéfinir la position si la lecture est en cours
+                    if !app.ui.backtest_state.is_playing {
+                        // Mettre à jour le timestamp de départ
+                        app.ui.backtest_state.start_timestamp = Some(time);
+                        
+                        // Réinitialiser les index pour que la barre se positionne sur la nouvelle date
+                        app.ui.backtest_state.current_index = 0;
+                        app.ui.backtest_state.start_index = None;
+                    }
+                }
+            }
         }
         ChartMessage::UpdatePan { position } => {
             app.chart_state.update_pan(position);
@@ -168,6 +184,22 @@ pub fn handle_chart_message(app: &mut ChartApp, msg: ChartMessage) {
         ChartMessage::Resize { width, height, x, y } => {
             app.chart_state.resize(width, height);
             app.chart_state.interaction.set_main_chart_bounds(x, y, width, height);
+        }
+        
+        // === Backtest ===
+        ChartMessage::SelectBacktestDate { time } => {
+            // Vérifier si la section Backtest est active
+            if app.ui.bottom_panel_sections.active_bottom_section == BottomPanelSection::Backtest {
+                // Ne pas permettre de redéfinir la position si la lecture est en cours
+                if !app.ui.backtest_state.is_playing {
+                    // Mettre à jour le timestamp de départ
+                    app.ui.backtest_state.start_timestamp = Some(time);
+                    
+                    // Réinitialiser les index pour que la barre se positionne sur la nouvelle date
+                    app.ui.backtest_state.current_index = 0;
+                    app.ui.backtest_state.start_index = None;
+                }
+            }
         }
     }
 }

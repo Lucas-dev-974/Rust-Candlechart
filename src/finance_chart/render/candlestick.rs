@@ -29,6 +29,7 @@ fn render_single_candle(
     viewport: &Viewport,
     candle_width: f32,
     colors: &CandleColors,
+    opacity: f32,
 ) {
     let price_scale = viewport.price_scale();
     let time_scale = viewport.time_scale();
@@ -39,19 +40,21 @@ fn render_single_candle(
     let high_y = price_scale.price_to_y(candle.high);
     let low_y = price_scale.price_to_y(candle.low);
 
-    // Couleur selon si la bougie est haussière ou baissière
+    // Couleur selon si la bougie est haussière ou baissière, avec opacité
     let body_color = if candle.is_bullish() {
-        colors.bullish
+        Color::from_rgba(colors.bullish.r, colors.bullish.g, colors.bullish.b, opacity)
     } else {
-        colors.bearish
+        Color::from_rgba(colors.bearish.r, colors.bearish.g, colors.bearish.b, opacity)
     };
+    
+    let wick_color = Color::from_rgba(colors.wick.r, colors.wick.g, colors.wick.b, opacity);
 
     // Dessiner la mèche (wick)
     let wick_path = Path::new(|builder| {
         builder.move_to(Point::new(x, high_y));
         builder.line_to(Point::new(x, low_y));
     });
-    frame.stroke(&wick_path, canvas::Stroke::default().with_color(colors.wick).with_width(1.0));
+    frame.stroke(&wick_path, canvas::Stroke::default().with_color(wick_color).with_width(1.0));
 
     // Dessiner le body
     let body_top = open_y.min(close_y);
@@ -66,11 +69,18 @@ fn render_single_candle(
 }
 
 /// Rend toutes les bougies visibles sur le frame
+/// 
+/// # Arguments
+/// * `cutoff_timestamp` - Si Some, les bougies avant ce timestamp sont pleines (opacité 1.0),
+///   celles après sont semi-transparentes (opacité 0.5). Si None, toutes les bougies sont pleines.
+/// * `hide_after_cutoff` - Si true et cutoff_timestamp est Some, les bougies après le timestamp sont cachées
 pub fn render_candlesticks(
     frame: &mut Frame,
     candles: &[Candle],
     viewport: &Viewport,
     colors: Option<CandleColors>,
+    cutoff_timestamp: Option<i64>,
+    hide_after_cutoff: bool,
 ) {
     if candles.is_empty() {
         return;
@@ -89,11 +99,29 @@ pub fn render_candlesticks(
     let margin = if is_small_series { candle_width * 2.0 } else { candle_width };
     
     for candle in candles {
+        // Filtrer les bougies après le cutoff si hide_after_cutoff est true
+        if let Some(cutoff) = cutoff_timestamp {
+            if hide_after_cutoff && candle.timestamp > cutoff {
+                continue; // Ne pas afficher cette bougie
+            }
+        }
+        
         // Vérifier si la bougie est visible horizontalement
         let x = viewport.time_scale().time_to_x(candle.timestamp);
         // Pour les petites séries, utiliser une marge plus large pour s'assurer que toutes les bougies sont visibles
         if x >= -margin && x <= viewport.width() + margin {
-            render_single_candle(frame, candle, viewport, candle_width, &colors);
+            // Déterminer l'opacité selon le cutoff_timestamp
+            let opacity = if let Some(cutoff) = cutoff_timestamp {
+                if candle.timestamp <= cutoff {
+                    1.0 // Pleine opacité avant la barre
+                } else {
+                    0.5 // Semi-transparent après la barre
+                }
+            } else {
+                1.0 // Pleine opacité par défaut
+            };
+            
+            render_single_candle(frame, candle, viewport, candle_width, &colors, opacity);
         }
     }
 }

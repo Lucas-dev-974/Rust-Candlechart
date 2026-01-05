@@ -57,6 +57,8 @@ pub struct ChartProgram<'a> {
     ma_enabled: bool,
     /// Paramètres des indicateurs
     indicator_params: Option<&'a crate::app::state::IndicatorParams>,
+    /// État du backtest (optionnel)
+    backtest_state: Option<&'a crate::app::state::backtest::BacktestState>,
 }
 
 impl<'a> ChartProgram<'a> {
@@ -79,6 +81,7 @@ impl<'a> ChartProgram<'a> {
             bollinger_enabled: false,
             ma_enabled: false,
             indicator_params: None,
+            backtest_state: None,
         }
     }
     
@@ -103,6 +106,7 @@ impl<'a> ChartProgram<'a> {
             bollinger_enabled: false,
             ma_enabled: false,
             indicator_params: None,
+            backtest_state: None,
         }
     }
     
@@ -128,6 +132,7 @@ impl<'a> ChartProgram<'a> {
             bollinger_enabled: false,
             ma_enabled: false,
             indicator_params: None,
+            backtest_state: None,
         }
     }
 
@@ -383,6 +388,28 @@ impl<'a> Program<ChartMessage> for ChartProgram<'a> {
         // Rendre toutes les séries actives avec des couleurs différentes
         // Pour les séries avec peu de bougies, passer toutes les bougies au renderer
         let visible_series = self.chart_state.visible_candles();
+        
+        // Déterminer le timestamp de coupure et si on doit cacher les bougies après
+        let (cutoff_timestamp, hide_after_cutoff) = if let Some(backtest_state) = self.backtest_state {
+            if let Some(active_series) = self.chart_state.series_manager.active_series().next() {
+                let all_candles = active_series.data.all_candles();
+                if let Some(current_ts) = backtest_state.current_candle_timestamp(all_candles) {
+                    // Si le player est en play, cacher les bougies après la barre
+                    let hide = backtest_state.is_playing;
+                    (Some(current_ts), hide)
+                } else if let Some(start_ts) = backtest_state.start_timestamp {
+                    // Si pas de timestamp actuel mais un timestamp de départ, l'utiliser
+                    (Some(start_ts), false)
+                } else {
+                    (None, false)
+                }
+            } else {
+                (None, false)
+            }
+        } else {
+            (None, false)
+        };
+        
         for (series_idx, (series_id, candles)) in visible_series.iter().enumerate() {
             // Si on a très peu de bougies visibles mais que la série en a plus,
             // c'est probablement un problème de filtrage - utiliser toutes les bougies
@@ -403,7 +430,14 @@ impl<'a> Program<ChartMessage> for ChartProgram<'a> {
             
             // Générer des couleurs différentes pour chaque série
             let series_colors = self.get_series_colors(series_idx, series_id);
-            render_candlesticks(&mut frame, candles_to_render, &self.chart_state.viewport, Some(series_colors));
+            render_candlesticks(
+                &mut frame, 
+                candles_to_render, 
+                &self.chart_state.viewport, 
+                Some(series_colors),
+                cutoff_timestamp,
+                hide_after_cutoff,
+            );
         }
         
         // Afficher la ligne de prix courant de la première série active
@@ -748,10 +782,14 @@ impl<'a> ChartProgram<'a> {
                 }));
             }
             None => {
-                // Pas d'outil actif - démarrer le pan
+                // Pas d'outil actif - émettre aussi SelectBacktestDate (le handler vérifiera si la section est active)
+                // et démarrer le pan
                 // (même si quelque chose est sélectionné, on peut toujours faire un pan)
                 // Utiliser la position absolue pour cohérence avec les indicateurs
-                return Some(CanvasAction::publish(ChartMessage::StartPan { position: absolute_position }));
+                return Some(CanvasAction::publish(ChartMessage::StartPan { 
+                    position: absolute_position,
+                    time: Some(time),
+                }));
             }
         }
     }
@@ -875,11 +913,13 @@ pub fn chart<'a>(
     ma_enabled: bool,
     // Paramètres des indicateurs
     indicator_params: Option<&'a crate::app::state::IndicatorParams>,
+    backtest_state: Option<&'a crate::app::state::backtest::BacktestState>,
 ) -> Element<'a, ChartMessage> {
     let mut program = ChartProgram::new(chart_state, tools_state, settings_state, chart_style, panel_focused);
     program.bollinger_enabled = bollinger_enabled;
     program.ma_enabled = ma_enabled;
     program.indicator_params = indicator_params;
+    program.backtest_state = backtest_state;
     Canvas::new(program)
         .width(Length::Fill)
         .height(Length::Fill)
@@ -899,11 +939,13 @@ pub fn chart_with_trading<'a>(
     ma_enabled: bool,
     // Paramètres des indicateurs
     indicator_params: Option<&'a crate::app::state::IndicatorParams>,
+    backtest_state: Option<&'a crate::app::state::backtest::BacktestState>,
 ) -> Element<'a, ChartMessage> {
     let mut program = ChartProgram::with_trading_state(chart_state, tools_state, settings_state, chart_style, panel_focused, trading_state, current_symbol);
     program.bollinger_enabled = bollinger_enabled;
     program.ma_enabled = ma_enabled;
     program.indicator_params = indicator_params;
+    program.backtest_state = backtest_state;
     Canvas::new(program)
         .width(Length::Fill)
         .height(Length::Fill)
@@ -924,11 +966,13 @@ pub fn chart_with_trades_and_trading<'a>(
     ma_enabled: bool,
     // Paramètres des indicateurs
     indicator_params: Option<&'a crate::app::state::IndicatorParams>,
+    backtest_state: Option<&'a crate::app::state::backtest::BacktestState>,
 ) -> Element<'a, ChartMessage> {
     let mut program = ChartProgram::with_trades_and_trading(chart_state, tools_state, settings_state, chart_style, panel_focused, trades, current_symbol, trading_state);
     program.bollinger_enabled = bollinger_enabled;
     program.ma_enabled = ma_enabled;
     program.indicator_params = indicator_params;
+    program.backtest_state = backtest_state;
     Canvas::new(program)
         .width(Length::Fill)
         .height(Length::Fill)

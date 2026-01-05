@@ -163,5 +163,17 @@ pub enum Message {
     UpdateStrategyTradingMode { strategy_id: String, trading_mode: crate::app::strategies::strategy::TradingMode }, // Met à jour le mode de trading temporairement
     ApplyStrategyConfig(String), // Applique les modifications d'une stratégie
     CancelStrategyConfig(String), // Annule les modifications d'une stratégie
+    
+    // === Messages du backtest ===
+    /// Sélectionner une date de départ pour le backtest (timestamp)
+    SelectBacktestDate(i64),
+    /// Démarrer la lecture du backtest
+    StartBacktest,
+    /// Mettre en pause la lecture du backtest
+    PauseBacktest,
+    /// Arrêter la lecture du backtest
+    StopBacktest,
+    /// Mise à jour de la lecture du backtest (appelé périodiquement)
+    BacktestTick,
 }
 

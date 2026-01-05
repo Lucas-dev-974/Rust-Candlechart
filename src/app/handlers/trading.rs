@@ -13,9 +13,10 @@ pub fn handle_update_order_quantity(app: &mut ChartApp, quantity: String) -> Tas
 /// Gère la mise à jour du type d'ordre
 pub fn handle_update_order_type(app: &mut ChartApp, order_type: OrderType) -> Task<crate::app::messages::Message> {
     app.trading_state.order_type = order_type;
-    // Si on passe en Market, réinitialiser le prix limite
+    // Si on passe en Market, réinitialiser le prix limite et désactiver TP/SL
     if order_type == OrderType::Market {
         app.trading_state.limit_price = String::new();
+        app.trading_state.tp_sl_enabled = false;
     } else if app.trading_state.limit_price.is_empty() {
         // Si on passe en Limit et que le prix limite est vide, l'initialiser avec le prix actuel
         if let Some(price) = app.chart_state.series_manager

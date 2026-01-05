@@ -138,7 +138,8 @@ impl<'a> Program<crate::app::messages::Message> for VolumeProgram<'a> {
                         return Some(iced::widget::canvas::Action::publish(
                             crate::app::messages::Message::Chart(
                                 crate::finance_chart::messages::ChartMessage::StartPan { 
-                                    position: absolute_position 
+                                    position: absolute_position,
+                                    time: None,
                                 }
                             )
                         ));

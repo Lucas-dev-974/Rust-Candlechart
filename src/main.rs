@@ -213,6 +213,13 @@ impl ChartApp {
             Message::CancelStrategyConfig(strategy_id) => {
                 handle_cancel_strategy_config(self, strategy_id)
             }
+            
+            // === Gestion du backtest ===
+            Message::SelectBacktestDate(timestamp) => handle_select_backtest_date(self, timestamp),
+            Message::StartBacktest => handle_start_backtest(self),
+            Message::PauseBacktest => handle_pause_backtest(self),
+            Message::StopBacktest => handle_stop_backtest(self),
+            Message::BacktestTick => handle_backtest_tick(self),
         }
     }
     

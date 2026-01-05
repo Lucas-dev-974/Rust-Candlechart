@@ -7,6 +7,7 @@ mod orders;
 mod trade_history;
 mod account;
 mod strategies;
+mod backtest;
 
 use iced::Element;
 use crate::app::{
@@ -25,6 +26,7 @@ pub fn view_section_content(app: &ChartApp, section: BottomPanelSection) -> Elem
         BottomPanelSection::Account => account::view_account(app),
         BottomPanelSection::TradeHistory => trade_history::view_trade_history(app),
         BottomPanelSection::Strategies => strategies::view_strategies(app),
+        BottomPanelSection::Backtest => backtest::view_backtest(app),
     }
 }
 

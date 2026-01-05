@@ -9,7 +9,6 @@ use iced::mouse::Cursor;
 use crate::finance_chart::state::ChartState;
 use crate::finance_chart::render::crosshair::{CrosshairStyle, draw_time_label};
 use crate::finance_chart::render::grid::format_time;
-use crate::finance_chart::scale::TimeScale;
 use crate::finance_chart::X_AXIS_HEIGHT;
 
 /// Programme canvas pour le crosshair vertical synchronisé
@@ -41,16 +40,13 @@ impl<'a, Message> Program<Message> for CrosshairOverlayProgram<'a> {
             // Convertir en position relative dans les bounds
             let relative_pos = Point::new(pos.x - bounds.x, pos.y - bounds.y);
             
-            // Vérifier si la souris est dans la zone des graphiques (pas dans l'axe Y)
-            // L'axe Y fait environ 60px de large
-            let chart_width = bounds.width - 60.0;
+            // Vérifier si la souris est dans la zone des graphiques
+            let viewport = &self.chart_state.viewport;
+            let chart_width = viewport.width();
             
             if relative_pos.x >= 0.0 && relative_pos.x <= chart_width && chart_width > 0.0 {
                 // Utiliser le viewport principal pour calculer le timestamp
-                let viewport = &self.chart_state.viewport;
-                let (min_time, max_time) = viewport.time_scale().time_range();
-                let time_scale = TimeScale::new(min_time, max_time, chart_width);
-                Some(time_scale.x_to_time(relative_pos.x))
+                Some(viewport.time_scale().x_to_time(relative_pos.x))
             } else {
                 None
             }
@@ -71,12 +67,10 @@ impl<'a, Message> Program<Message> for CrosshairOverlayProgram<'a> {
         // Dessiner la ligne verticale si on a un timestamp
         if let Some(timestamp) = timestamp {
             let viewport = &self.chart_state.viewport;
-            let (min_time, max_time) = viewport.time_scale().time_range();
-            let chart_width = bounds.width - 60.0;
+            let chart_width = viewport.width();
             
             if chart_width > 0.0 {
-                let time_scale = TimeScale::new(min_time, max_time, chart_width);
-                let x = time_scale.time_to_x(timestamp);
+                let x = viewport.time_scale().time_to_x(timestamp);
                 
                 if x >= 0.0 && x <= chart_width {
                     let style = CrosshairStyle::default();
