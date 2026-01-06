@@ -165,6 +165,10 @@ pub enum Message {
     CancelStrategyConfig(String), // Annule les modifications d'une stratégie
     
     // === Messages du backtest ===
+    /// Activer ou désactiver le mode backtest
+    ToggleBacktestEnabled,
+    /// Sélectionner une stratégie pour le backtest (None = aucune stratégie)
+    SelectBacktestStrategy(Option<String>),
     /// Sélectionner une date de départ pour le backtest (timestamp)
     SelectBacktestDate(i64),
     /// Démarrer la lecture du backtest

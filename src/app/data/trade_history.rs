@@ -537,7 +537,9 @@ impl TradeHistory {
         }
         
         // Fermer les positions (en ordre inverse)
-        for (index, position) in positions_to_close.iter().rev() {
+        // Note: on n'a pas besoin de retirer manuellement les positions car
+        // close_position et close_short_position le font déjà
+        for (_index, position) in positions_to_close.iter().rev() {
             match position.trade_type {
                 TradeType::Buy => {
                     if let Some(trade) = self.close_position(&position.symbol, position.quantity, current_price) {
@@ -552,7 +554,7 @@ impl TradeHistory {
                     }
                 }
             }
-            self.open_positions.remove(*index);
+            // La position a déjà été retirée par close_position ou close_short_position
         }
     }
 }

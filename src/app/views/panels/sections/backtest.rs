@@ -1,6 +1,6 @@
 //! Section "Backtest"
 
-use iced::widget::{button, column, container, row, text, Space};
+use iced::widget::{button, checkbox, column, container, pick_list, row, text, Space};
 use iced::{Element, Length, Color};
 use crate::app::{app_state::ChartApp, messages::Message, view_styles::colors};
 
@@ -46,6 +46,7 @@ pub fn view_backtest(app: &ChartApp) -> Element<'_, Message> {
     let backtest_state = &app.ui.backtest_state;
     let _has_start_date = backtest_state.start_timestamp.is_some();
     let is_playing = backtest_state.is_playing;
+    let is_enabled = backtest_state.enabled;
     
     let mut content = column![]
         .spacing(15)
@@ -58,62 +59,130 @@ pub fn view_backtest(app: &ChartApp) -> Element<'_, Message> {
             .color(colors::TEXT_PRIMARY)
     );
     
-    // Informations sur la date sélectionnée
-    if let Some(timestamp) = backtest_state.start_timestamp {
+    // Case à cocher "Activé backtest"
+    content = content.push(
+        row![
+            checkbox(is_enabled)
+                .on_toggle(|_| Message::ToggleBacktestEnabled),
+            text("Activé backtest")
+                .size(14)
+                .color(colors::TEXT_PRIMARY)
+        ]
+        .spacing(8)
+        .align_y(iced::Alignment::Center)
+    );
+    
+    // Informations sur la date sélectionnée (seulement si activé)
+    if is_enabled {
+        // Liste des stratégies disponibles
+        let strategies = app.strategy_manager.get_all();
+        
+        // Créer une liste de tuples (ID, nom affiché) pour faciliter la sélection
+        let strategy_list: Vec<(String, String)> = strategies
+            .iter()
+            .map(|(id, reg)| {
+                (id.clone(), format!("{} ({})", reg.strategy.name(), id))
+            })
+            .collect();
+        
+        // Créer la liste des options affichées (avec "Aucune stratégie" en premier)
+        let mut all_options = vec!["Aucune stratégie".to_string()];
+        all_options.extend(strategy_list.iter().map(|(_, display)| display.clone()));
+        
+        // Trouver l'option sélectionnée
+        let selected_option = if let Some(ref selected_id) = backtest_state.selected_strategy_id {
+            strategy_list
+                .iter()
+                .find(|(id, _)| id == selected_id)
+                .map(|(_, display)| display.clone())
+        } else {
+            Some("Aucune stratégie".to_string())
+        };
+        
+        // Sélecteur de stratégie
         content = content.push(
             column![
-                text("Date de départ sélectionnée:")
+                text("Algorithme de trading:")
                     .size(12)
                     .color(colors::TEXT_SECONDARY),
-                text(format_timestamp(timestamp))
-                    .size(14)
-                    .color(colors::TEXT_PRIMARY)
+                pick_list(
+                    all_options,
+                    selected_option,
+                    move |selected: String| {
+                        if selected == "Aucune stratégie" {
+                            Message::SelectBacktestStrategy(None)
+                        } else {
+                            // Trouver l'ID correspondant au nom sélectionné
+                            let strategy_id = strategy_list
+                                .iter()
+                                .find(|(_, display)| *display == selected)
+                                .map(|(id, _)| id.clone());
+                            Message::SelectBacktestStrategy(strategy_id)
+                        }
+                    }
+                )
+                .width(Length::Fill)
+                .placeholder("Sélectionner un algorithme...")
+                .text_size(13.0)
             ]
             .spacing(5)
         );
-    } else {
-        content = content.push(
-            text("Cliquez sur le graphique pour sélectionner une date de départ")
-                .size(12)
-                .color(colors::TEXT_SECONDARY)
-        );
-    }
-    
-    // Boutons de contrôle
-    let mut controls_row = row![].spacing(10);
-    
-    if is_playing {
-        // Bouton pause
+        if let Some(timestamp) = backtest_state.start_timestamp {
+            content = content.push(
+                column![
+                    text("Date de départ sélectionnée:")
+                        .size(12)
+                        .color(colors::TEXT_SECONDARY),
+                    text(format_timestamp(timestamp))
+                        .size(14)
+                        .color(colors::TEXT_PRIMARY)
+                ]
+                .spacing(5)
+            );
+        } else {
+            content = content.push(
+                text("Cliquez sur le graphique pour sélectionner une date de départ")
+                    .size(12)
+                    .color(colors::TEXT_SECONDARY)
+            );
+        }
+        
+        // Boutons de contrôle (seulement si activé)
+        let mut controls_row = row![].spacing(10);
+        
+        if is_playing {
+            // Bouton pause
+            controls_row = controls_row.push(
+                button("⏸ Pause")
+                    .on_press(Message::PauseBacktest)
+                    .style(secondary_button_style)
+            );
+        } else {
+            // Bouton play
+            controls_row = controls_row.push(
+                button("▶ Play")
+                    .on_press(Message::StartBacktest)
+                    .style(primary_button_style)
+            );
+        }
+        
+        // Bouton stop
         controls_row = controls_row.push(
-            button("⏸ Pause")
-                .on_press(Message::PauseBacktest)
+            button("⏹ Stop")
+                .on_press(Message::StopBacktest)
                 .style(secondary_button_style)
         );
-    } else {
-        // Bouton play
-        controls_row = controls_row.push(
-            button("▶ Play")
-                .on_press(Message::StartBacktest)
-                .style(primary_button_style)
-        );
-    }
-    
-    // Bouton stop
-    controls_row = controls_row.push(
-        button("⏹ Stop")
-            .on_press(Message::StopBacktest)
-            .style(secondary_button_style)
-    );
-    
-    content = content.push(controls_row);
-    
-    // État de la lecture
-    if is_playing {
-        content = content.push(
-            text(format!("Lecture en cours... (Index: {})", backtest_state.current_index))
-                .size(12)
-                .color(Color::from_rgb(0.2, 0.8, 0.3))
-        );
+        
+        content = content.push(controls_row);
+        
+        // État de la lecture
+        if is_playing {
+            content = content.push(
+                text(format!("Lecture en cours... (Index: {})", backtest_state.current_index))
+                    .size(12)
+                    .color(Color::from_rgb(0.2, 0.8, 0.3))
+            );
+        }
     }
     
     container(content)

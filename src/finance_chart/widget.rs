@@ -390,8 +390,12 @@ impl<'a> Program<ChartMessage> for ChartProgram<'a> {
         let visible_series = self.chart_state.visible_candles();
         
         // Déterminer le timestamp de coupure et si on doit cacher les bougies après
+        // Seulement si le backtest est activé
         let (cutoff_timestamp, hide_after_cutoff) = if let Some(backtest_state) = self.backtest_state {
-            if let Some(active_series) = self.chart_state.series_manager.active_series().next() {
+            // Vérifier que le backtest est activé avant d'appliquer l'opacité
+            if !backtest_state.enabled {
+                (None, false)
+            } else if let Some(active_series) = self.chart_state.series_manager.active_series().next() {
                 let all_candles = active_series.data.all_candles();
                 if let Some(current_ts) = backtest_state.current_candle_timestamp(all_candles) {
                     // Si le player est en play, cacher les bougies après la barre

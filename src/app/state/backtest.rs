@@ -5,6 +5,8 @@
 /// État du backtest
 #[derive(Debug, Clone)]
 pub struct BacktestState {
+    /// Indique si le mode backtest est activé
+    pub enabled: bool,
     /// Timestamp de départ sélectionné (None si aucune date n'est sélectionnée)
     pub start_timestamp: Option<i64>,
     /// Indique si le backtest est en cours de lecture
@@ -15,16 +17,20 @@ pub struct BacktestState {
     pub start_index: Option<usize>,
     /// Vitesse de lecture (en millisecondes entre chaque bougie)
     pub playback_speed_ms: u64,
+    /// ID de la stratégie sélectionnée pour le backtest (None = aucune stratégie)
+    pub selected_strategy_id: Option<String>,
 }
 
 impl Default for BacktestState {
     fn default() -> Self {
         Self {
+            enabled: false,
             start_timestamp: None,
             is_playing: false,
             current_index: 0,
             start_index: None,
             playback_speed_ms: 100, // 100ms par défaut (10 bougies par seconde)
+            selected_strategy_id: None,
         }
     }
 }
@@ -78,6 +84,15 @@ impl BacktestState {
     /// Met à jour la vitesse de lecture
     pub fn set_speed(&mut self, speed_ms: u64) {
         self.playback_speed_ms = speed_ms;
+    }
+    
+    /// Active ou désactive le mode backtest
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+        // Si on désactive le backtest, arrêter la lecture
+        if !enabled {
+            self.is_playing = false;
+        }
     }
     
     /// Obtient le timestamp actuel de la bougie en cours de lecture

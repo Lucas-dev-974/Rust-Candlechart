@@ -215,6 +215,8 @@ impl ChartApp {
             }
             
             // === Gestion du backtest ===
+            Message::ToggleBacktestEnabled => handle_toggle_backtest_enabled(self),
+            Message::SelectBacktestStrategy(strategy_id) => handle_select_backtest_strategy(self, strategy_id),
             Message::SelectBacktestDate(timestamp) => handle_select_backtest_date(self, timestamp),
             Message::StartBacktest => handle_start_backtest(self),
             Message::PauseBacktest => handle_pause_backtest(self),

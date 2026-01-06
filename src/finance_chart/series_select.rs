@@ -14,7 +14,7 @@ const VALID_TIME_UNITS: &[&str] = &[
     "1h", "2h", "4h", "6h", "8h", "12h",
     "1d", "3d",
     "1w",
-    "1M",zzzzzzzzz
+    "1M",
 ];
 
 /// Vérifie si un intervalle est une unité de temps valide

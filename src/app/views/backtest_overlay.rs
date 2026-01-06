@@ -32,6 +32,11 @@ impl<'a, Message> Program<Message> for BacktestOverlayProgram<'a> {
     ) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
         
+        // Dessiner la barre verticale seulement si le backtest est activé
+        if !self.backtest_state.enabled {
+            return vec![frame.into_geometry()];
+        }
+        
         // Dessiner la barre verticale si une date est sélectionnée
         // Utiliser le timestamp actuel de la bougie (même si le player est arrêté)
         let timestamp = if let Some(active_series) = self.chart_state.series_manager.active_series().next() {

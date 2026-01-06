@@ -19,7 +19,8 @@ pub fn handle_chart_message(app: &mut ChartApp, msg: ChartMessage) {
             // Si un time est fourni, également gérer la sélection de date de backtest
             if let Some(time) = time {
                 use crate::app::state::BottomPanelSection;
-                if app.ui.bottom_panel_sections.active_bottom_section == BottomPanelSection::Backtest {
+                if app.ui.bottom_panel_sections.active_bottom_section == BottomPanelSection::Backtest
+                    && app.ui.backtest_state.enabled {
                     // Ne pas permettre de redéfinir la position si la lecture est en cours
                     if !app.ui.backtest_state.is_playing {
                         // Mettre à jour le timestamp de départ
@@ -188,8 +189,9 @@ pub fn handle_chart_message(app: &mut ChartApp, msg: ChartMessage) {
         
         // === Backtest ===
         ChartMessage::SelectBacktestDate { time } => {
-            // Vérifier si la section Backtest est active
-            if app.ui.bottom_panel_sections.active_bottom_section == BottomPanelSection::Backtest {
+            // Vérifier si la section Backtest est active et si le backtest est activé
+            if app.ui.bottom_panel_sections.active_bottom_section == BottomPanelSection::Backtest
+                && app.ui.backtest_state.enabled {
                 // Ne pas permettre de redéfinir la position si la lecture est en cours
                 if !app.ui.backtest_state.is_playing {
                     // Mettre à jour le timestamp de départ
