@@ -114,13 +114,22 @@ pub fn handle_place_buy_order(app: &mut ChartApp) -> Task<crate::app::messages::
                         
                         // En mode démo, simuler l'ordre
                         if app.account_type.is_demo() {
+                            // Récupérer le timestamp de la dernière bougie
+                            let timestamp = app.chart_state.series_manager
+                                .active_series()
+                                .next()
+                                .and_then(|s| s.data.last_candle().map(|c| c.timestamp));
+                            
                             // Ouvrir une position d'achat avec TP/SL
-                            let position = app.trading_state.trade_history.open_buy_position_with_tp_sl(
+                            let position = app.trading_state.trade_history.open_buy_position_with_tp_sl_and_strategy(
                                 symbol.clone(),
                                 quantity,
                                 price,
                                 take_profit,
                                 stop_loss,
+                                None,
+                                None,
+                                timestamp,
                             );
                             
                             println!("  ✅ Position ouverte: Trade #{}", position.id);
@@ -158,7 +167,11 @@ pub fn handle_place_buy_order(app: &mut ChartApp) -> Task<crate::app::messages::
                                 order.id, price);
                             
                             // Vérifier immédiatement si l'ordre peut être exécuté
-                            app.trading_state.trade_history.check_and_execute_pending_orders(&symbol, current_price);
+                            let timestamp = app.chart_state.series_manager
+                                .active_series()
+                                .next()
+                                .and_then(|s| s.data.last_candle().map(|c| c.timestamp));
+                            app.trading_state.trade_history.check_and_execute_pending_orders(&symbol, current_price, timestamp);
                             
                             // Sauvegarder l'historique
                             if let Err(e) = app.trading_state.trade_history.save_to_file("paper_trading.json") {
@@ -244,17 +257,28 @@ pub fn handle_place_sell_order(app: &mut ChartApp) -> Task<crate::app::messages:
                 OrderType::Market => {
                     // En mode démo, simuler l'ordre
                     if app.account_type.is_demo() {
+                        // Récupérer le timestamp de la dernière bougie
+                        let timestamp = app.chart_state.series_manager
+                            .active_series()
+                            .next()
+                            .and_then(|s| s.data.last_candle().map(|c| c.timestamp));
+                        
                         // Essayer de fermer une position existante
-                        if let Some(trade) = app.trading_state.trade_history.close_position(&symbol, quantity, price) {
+                        if let Some(trade) = app.trading_state.trade_history.close_position_with_strategy(
+                            &symbol, quantity, price, None, None, timestamp
+                        ) {
                             println!("  ✅ Position fermée: Trade #{} (P&L: {:.2} USDT)", trade.id, trade.realized_pnl);
                         } else {
                             // Aucune position à fermer, ouvrir une position short
-                            let trade = app.trading_state.trade_history.open_sell_position_with_tp_sl(
+                            let trade = app.trading_state.trade_history.open_sell_position_with_tp_sl_and_strategy(
                                 symbol.clone(),
                                 quantity,
                                 price,
                                 take_profit,
                                 stop_loss,
+                                None,
+                                None,
+                                timestamp,
                             );
                             
                             println!("  ✅ Position short ouverte: Trade #{}", trade.id);
@@ -290,7 +314,11 @@ pub fn handle_place_sell_order(app: &mut ChartApp) -> Task<crate::app::messages:
                             order.id, price);
                         
                         // Vérifier immédiatement si l'ordre peut être exécuté
-                        app.trading_state.trade_history.check_and_execute_pending_orders(&symbol, current_price);
+                        let timestamp = app.chart_state.series_manager
+                            .active_series()
+                            .next()
+                            .and_then(|s| s.data.last_candle().map(|c| c.timestamp));
+                        app.trading_state.trade_history.check_and_execute_pending_orders(&symbol, current_price, timestamp);
                         
                         // Sauvegarder l'historique
                         if let Err(e) = app.trading_state.trade_history.save_to_file("paper_trading.json") {

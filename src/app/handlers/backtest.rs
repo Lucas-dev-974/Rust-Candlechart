@@ -6,6 +6,29 @@ use crate::app::messages::Message;
 use crate::app::strategies::strategy::{MarketContext, TradingSignal, TradingMode};
 use crate::app::data::OrderType;
 
+/// Sauvegarde les trades du backtest dans un fichier spécifique
+fn save_backtest_trades(app: &ChartApp, strategy_id: &str) {
+    // Créer le nom du fichier basé sur le nom de la stratégie
+    // Nettoyer le nom de la stratégie pour qu'il soit valide comme nom de fichier
+    let strategy_name = app.strategy_manager
+        .get_strategy(strategy_id)
+        .map(|reg| reg.strategy.name())
+        .unwrap_or(strategy_id);
+    
+    // Remplacer les caractères invalides par des underscores
+    let safe_name = strategy_name
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect::<String>();
+    
+    let filename = format!("{}-trades.json", safe_name);
+    
+    // Sauvegarder l'historique de trades du backtest
+    if let Err(e) = app.ui.backtest_state.backtest_trade_history.save_to_file(&filename) {
+        eprintln!("⚠️ Erreur sauvegarde trades backtest: {}", e);
+    }
+}
+
 /// Active ou désactive le mode backtest
 pub fn handle_toggle_backtest_enabled(app: &mut ChartApp) -> Task<Message> {
     let new_state = !app.ui.backtest_state.enabled;
@@ -88,9 +111,15 @@ pub fn handle_start_backtest(app: &mut ChartApp) -> Task<Message> {
                     return Task::none();
                 }
                 
+                // Initialiser le capital du backtest avec le capital actuel du compte
+                let initial_capital = app.account_info.total_balance;
+                app.ui.backtest_state.reset_with_capital(initial_capital);
+                
                 // Démarrer le backtest (réinitialise current_index à 0)
                 app.ui.backtest_state.start(start_timestamp);
                 app.ui.backtest_state.set_start_index(start_index);
+                
+                println!("📊 Backtest démarré avec capital initial: {:.2} USDT", initial_capital);
             }
             
             // La subscription sera automatiquement mise à jour lors du prochain cycle
@@ -124,6 +153,11 @@ pub fn handle_stop_backtest(app: &mut ChartApp) -> Task<Message> {
     // Ne permettre l'arrêt que si le backtest est activé
     if !app.ui.backtest_state.enabled {
         return Task::none();
+    }
+    
+    // Sauvegarder les trades du backtest avant d'arrêter
+    if let Some(ref strategy_id) = app.ui.backtest_state.selected_strategy_id {
+        save_backtest_trades(app, strategy_id);
     }
     
     app.ui.backtest_state.stop();
@@ -189,6 +223,12 @@ pub fn handle_backtest_tick(app: &mut ChartApp) -> Task<Message> {
                 // Mettre current_index à la position de la dernière bougie
                 app.ui.backtest_state.update_index(last_valid_index - start_index);
             }
+            
+            // Sauvegarder les trades du backtest avant d'arrêter
+            if let Some(ref strategy_id) = app.ui.backtest_state.selected_strategy_id {
+                save_backtest_trades(app, strategy_id);
+            }
+            
             // Arrêter le backtest en gardant la position
             app.ui.backtest_state.stop_at_end();
             return Task::none();
@@ -198,9 +238,22 @@ pub fn handle_backtest_tick(app: &mut ChartApp) -> Task<Message> {
         let current_candle = &candles[current_candle_index];
         let current_price = current_candle.close;
         
-        // Vérifier et exécuter les TP/SL des positions ouvertes pour ce symbole
-        if app.account_type.is_demo() {
-            app.trading_state.trade_history.check_take_profit_stop_loss(&series.symbol, current_price);
+        // Vérifier et exécuter les TP/SL des positions ouvertes pour ce symbole dans le backtest
+        // Utiliser le trade_history du backtest, pas celui du compte principal
+        let had_trades_before = !app.ui.backtest_state.backtest_trade_history.trades.is_empty();
+        
+        app.ui.backtest_state.backtest_trade_history.check_take_profit_stop_loss(
+            &series.symbol, 
+            current_price, 
+            Some(current_candle.timestamp)
+        );
+        
+        // Sauvegarder si des trades ont été fermés par TP/SL
+        let has_trades_after = !app.ui.backtest_state.backtest_trade_history.trades.is_empty();
+        if has_trades_after && had_trades_before {
+            if let Some(ref strategy_id) = app.ui.backtest_state.selected_strategy_id {
+                save_backtest_trades(app, strategy_id);
+            }
         }
         
         // Exécuter la stratégie sélectionnée si elle existe (sur la bougie actuelle)
@@ -290,7 +343,7 @@ fn execute_backtest_strategy(
                 OrderType::Limit => current_price, // Simplifié pour le backtest
             };
             
-            let position = app.trading_state.trade_history.open_buy_position_with_tp_sl_and_strategy(
+            let position = app.ui.backtest_state.backtest_trade_history.open_buy_position_with_tp_sl_and_strategy(
                 series.symbol.clone(),
                 quantity,
                 price,
@@ -298,16 +351,16 @@ fn execute_backtest_strategy(
                 stop_loss,
                 Some(strategy_id.to_string()),
                 Some(strategy_name.clone()),
+                Some(current_candle.timestamp),
             );
             
             println!("  ✅ Position ouverte (backtest): Trade #{}", position.id);
             
-            // Sauvegarder
-            if let Err(e) = app.trading_state.trade_history.save_to_file("paper_trading.json") {
-                eprintln!("⚠️ Erreur sauvegarde: {}", e);
-            }
+            // Sauvegarder les trades du backtest dans un fichier spécifique
+            save_backtest_trades(app, strategy_id);
             
-            app.update_account_info();
+            // Ne pas sauvegarder dans paper_trading.json ni mettre à jour le compte principal
+            // Le backtest utilise son propre trade_history isolé
         }
         TradingSignal::Sell { quantity, order_type, take_profit, stop_loss, .. } => {
             println!("🤖 [Backtest - {}] Signal de vente: {} (confiance: {:.2}%)", 
@@ -318,35 +371,35 @@ fn execute_backtest_strategy(
                 OrderType::Limit => current_price, // Simplifié pour le backtest
             };
             
-            // Chercher une position ouverte pour ce symbole
-            let open_positions: Vec<_> = app.trading_state.trade_history.open_positions
+            // Chercher une position ouverte pour ce symbole dans le backtest
+            let open_positions: Vec<_> = app.ui.backtest_state.backtest_trade_history.open_positions
                 .iter()
                 .filter(|p| p.symbol == series.symbol)
                 .collect();
             
-            if let Some(position) = open_positions.first() {
+            if open_positions.first().is_some() {
                 // Fermer la position existante
-                let closed_position = app.trading_state.trade_history.close_position_with_strategy(
+                let closed_position = app.ui.backtest_state.backtest_trade_history.close_position_with_strategy(
                     &series.symbol,
                     quantity,
                     price,
                     Some(strategy_id.to_string()),
                     Some(strategy_name.clone()),
+                    Some(current_candle.timestamp),
                 );
                 
                 if let Some(closed) = closed_position {
                     println!("  ✅ Position fermée (backtest): Trade #{}", closed.id);
                     
-                    // Sauvegarder
-                    if let Err(e) = app.trading_state.trade_history.save_to_file("paper_trading.json") {
-                        eprintln!("⚠️ Erreur sauvegarde: {}", e);
-                    }
+                    // Sauvegarder les trades du backtest dans un fichier spécifique
+                    save_backtest_trades(app, strategy_id);
                     
-                    app.update_account_info();
+                    // Ne pas sauvegarder dans paper_trading.json ni mettre à jour le compte principal
+                    // Le backtest utilise son propre trade_history isolé
                 }
             } else {
                 // Ouvrir une nouvelle position de vente (short)
-                let position = app.trading_state.trade_history.open_sell_position_with_tp_sl_and_strategy(
+                let position = app.ui.backtest_state.backtest_trade_history.open_sell_position_with_tp_sl_and_strategy(
                     series.symbol.clone(),
                     quantity,
                     price,
@@ -354,16 +407,16 @@ fn execute_backtest_strategy(
                     stop_loss,
                     Some(strategy_id.to_string()),
                     Some(strategy_name.clone()),
+                    Some(current_candle.timestamp),
                 );
                 
                 println!("  ✅ Position short ouverte (backtest): Trade #{}", position.id);
                 
-                // Sauvegarder
-                if let Err(e) = app.trading_state.trade_history.save_to_file("paper_trading.json") {
-                    eprintln!("⚠️ Erreur sauvegarde: {}", e);
-                }
+                // Sauvegarder les trades du backtest dans un fichier spécifique
+                save_backtest_trades(app, strategy_id);
                 
-                app.update_account_info();
+                // Ne pas sauvegarder dans paper_trading.json ni mettre à jour le compte principal
+                // Le backtest utilise son propre trade_history isolé
             }
         }
         TradingSignal::Hold => {

@@ -1,6 +1,6 @@
 //! Section "Backtest"
 
-use iced::widget::{button, checkbox, column, container, pick_list, row, text, Space};
+use iced::widget::{button, checkbox, column, container, pick_list, row, scrollable, text};
 use iced::{Element, Length, Color};
 use crate::app::{app_state::ChartApp, messages::Message, view_styles::colors};
 
@@ -183,12 +183,173 @@ pub fn view_backtest(app: &ChartApp) -> Element<'_, Message> {
                     .color(Color::from_rgb(0.2, 0.8, 0.3))
             );
         }
+        
+        // Afficher les statistiques du backtest
+        // Toujours afficher les statistiques si le backtest a été démarré au moins une fois
+        if backtest_state.start_index.is_some() || !backtest_state.backtest_trade_history.trades.is_empty() {
+            let symbol = app.chart_state.series_manager
+                .active_series()
+                .next()
+                .map(|s| s.symbol.clone())
+                .unwrap_or_else(|| String::from("UNKNOWN"));
+            
+            let current_price = app.chart_state.series_manager
+                .active_series()
+                .next()
+                .and_then(|s| s.data.last_candle().map(|c| c.close))
+                .unwrap_or(0.0);
+            
+            let stats = backtest_state.calculate_stats(&symbol, current_price);
+            
+            // Statistiques du backtest
+            content = content.push(
+                column![
+                    text("Statistiques du Backtest")
+                        .size(14)
+                        .color(colors::TEXT_PRIMARY),
+                    row![
+                        text("Capital initial: ")
+                            .size(12)
+                            .color(colors::TEXT_SECONDARY),
+                        text(format!("{:.2} USDT", stats.initial_capital))
+                            .size(12)
+                            .color(colors::TEXT_PRIMARY)
+                    ]
+                    .spacing(5),
+                    row![
+                        text("Capital final: ")
+                            .size(12)
+                            .color(colors::TEXT_SECONDARY),
+                        text(format!("{:.2} USDT", stats.final_capital))
+                            .size(12)
+                            .color(if stats.final_capital >= stats.initial_capital {
+                                Color::from_rgb(0.2, 0.8, 0.3)
+                            } else {
+                                Color::from_rgb(0.8, 0.2, 0.2)
+                            })
+                    ]
+                    .spacing(5),
+                    row![
+                        text("P&L réalisé: ")
+                            .size(12)
+                            .color(colors::TEXT_SECONDARY),
+                        text(format!("{:.2} USDT", stats.total_realized_pnl))
+                            .size(12)
+                            .color(if stats.total_realized_pnl >= 0.0 {
+                                Color::from_rgb(0.2, 0.8, 0.3)
+                            } else {
+                                Color::from_rgb(0.8, 0.2, 0.2)
+                            })
+                    ]
+                    .spacing(5),
+                    row![
+                        text("P&L non réalisé: ")
+                            .size(12)
+                            .color(colors::TEXT_SECONDARY),
+                        text(format!("{:.2} USDT", stats.total_unrealized_pnl))
+                            .size(12)
+                            .color(if stats.total_unrealized_pnl >= 0.0 {
+                                Color::from_rgb(0.2, 0.8, 0.3)
+                            } else {
+                                Color::from_rgb(0.8, 0.2, 0.2)
+                            })
+                    ]
+                    .spacing(5),
+                    row![
+                        text("P&L total: ")
+                            .size(12)
+                            .color(colors::TEXT_SECONDARY),
+                        text(format!("{:.2} USDT ({:.2}%)", stats.total_pnl, stats.return_percentage))
+                            .size(12)
+                            .color(if stats.total_pnl >= 0.0 {
+                                Color::from_rgb(0.2, 0.8, 0.3)
+                            } else {
+                                Color::from_rgb(0.8, 0.2, 0.2)
+                            })
+                    ]
+                    .spacing(5),
+                    row![
+                        text("Trades: ")
+                            .size(12)
+                            .color(colors::TEXT_SECONDARY),
+                        text(format!("{}", stats.total_trades))
+                            .size(12)
+                            .color(colors::TEXT_PRIMARY)
+                    ]
+                    .spacing(5),
+                    row![
+                        text("Positions ouvertes: ")
+                            .size(12)
+                            .color(colors::TEXT_SECONDARY),
+                        text(format!("{}", stats.open_positions))
+                            .size(12)
+                            .color(colors::TEXT_PRIMARY)
+                    ]
+                    .spacing(5),
+                ]
+                .spacing(8)
+                .padding(10)
+            );
+        }
+        
+        // Historique des trades du backtest
+        let backtest_trades = &backtest_state.backtest_trade_history.trades;
+        if !backtest_trades.is_empty() {
+            content = content.push(
+                column![
+                    text("Historique des Trades")
+                        .size(14)
+                        .color(colors::TEXT_PRIMARY),
+                    // Afficher les 10 derniers trades
+                    {
+                        let mut trades_column = column![].spacing(3);
+                        for trade in backtest_trades.iter().rev().take(10) {
+                            let trade_type_text = match trade.trade_type {
+                                crate::app::data::TradeType::Buy => "ACHAT",
+                                crate::app::data::TradeType::Sell => "VENTE",
+                            };
+                            let trade_type_color = match trade.trade_type {
+                                crate::app::data::TradeType::Buy => Color::from_rgb(0.2, 0.8, 0.3),
+                                crate::app::data::TradeType::Sell => Color::from_rgb(0.8, 0.2, 0.2),
+                            };
+                            
+                            trades_column = trades_column.push(
+                                row![
+                                    text(format!("{}", trade_type_text))
+                                        .size(11)
+                                        .color(trade_type_color),
+                                    text(format!(" {} @ {:.2}", trade.quantity, trade.price))
+                                        .size(11)
+                                        .color(colors::TEXT_SECONDARY),
+                                    text(format!(" P&L: {:.2}", trade.realized_pnl))
+                                        .size(11)
+                                        .color(if trade.realized_pnl >= 0.0 {
+                                            Color::from_rgb(0.2, 0.8, 0.3)
+                                        } else {
+                                            Color::from_rgb(0.8, 0.2, 0.2)
+                                        })
+                                ]
+                                .spacing(5)
+                            );
+                        }
+                        trades_column
+                    }
+                    .spacing(3)
+                ]
+                .spacing(8)
+                .padding(10)
+            );
+        }
     }
     
-    container(content)
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .into()
+    container(
+        scrollable(content)
+            .width(Length::Fill)
+            .height(Length::Fill)
+    )
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .into()
 }
 
 

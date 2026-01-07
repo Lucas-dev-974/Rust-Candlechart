@@ -79,15 +79,15 @@ pub fn apply_realtime_updates(app: &mut ChartApp, results: Vec<(SeriesId, String
     let mut has_updates = false;
     let mut has_new_candles = false;
     
-    // Collecter les symboles et prix avant de traiter les résultats
+    // Collecter les symboles, prix et timestamps avant de traiter les résultats
     let mut symbol_prices = Vec::new();
     
     for (series_id, series_name, result) in &results {
         match result {
             Ok(Some(candle)) => {
-                // Collecter le symbole et le prix pour la vérification des ordres
+                // Collecter le symbole, le prix et le timestamp pour la vérification des ordres
                 if let Some(series) = app.chart_state.series_manager.get_series(series_id) {
-                    symbol_prices.push((series.symbol.clone(), candle.close));
+                    symbol_prices.push((series.symbol.clone(), candle.close, candle.timestamp));
                 }
                 
                 match app.chart_state.update_candle(series_id, candle.clone()) {
@@ -132,16 +132,16 @@ pub fn apply_realtime_updates(app: &mut ChartApp, results: Vec<(SeriesId, String
         // Mettre à jour les informations du compte (P&L non réalisé) si on est en mode paper trading
         if app.account_type.is_demo() && has_updates {
             // Vérifier et exécuter les ordres limit en attente et les TP/SL
-            for (symbol, current_price) in &symbol_prices {
+            for (symbol, current_price, timestamp) in &symbol_prices {
                 // Vérifier les ordres limit en attente
-                app.trading_state.trade_history.check_and_execute_pending_orders(symbol, *current_price);
+                app.trading_state.trade_history.check_and_execute_pending_orders(symbol, *current_price, Some(*timestamp));
                 
                 // Vérifier les TP/SL des positions ouvertes
-                app.trading_state.trade_history.check_take_profit_stop_loss(symbol, *current_price);
+                app.trading_state.trade_history.check_take_profit_stop_loss(symbol, *current_price, Some(*timestamp));
             }
             
             // Mettre à jour automatiquement TP/SL avec 15% d'écart si les champs sont vides
-            if let Some(current_price) = symbol_prices.first().map(|(_, price)| *price) {
+            if let Some(current_price) = symbol_prices.first().map(|(_, price, _)| *price) {
                 app.trading_state.update_tp_sl_from_price(current_price);
             }
             

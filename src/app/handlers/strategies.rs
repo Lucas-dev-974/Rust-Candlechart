@@ -91,6 +91,7 @@ pub fn execute_strategies(app: &mut ChartApp) -> Task<crate::app::messages::Mess
                         stop_loss,
                         Some(strategy_id.clone()),
                         Some(strategy_name.clone()),
+                        Some(current_candle.timestamp),
                     );
                     
                     println!("  ✅ Position ouverte automatiquement: Trade #{}", position.id);
@@ -120,6 +121,7 @@ pub fn execute_strategies(app: &mut ChartApp) -> Task<crate::app::messages::Mess
                         price,
                         Some(strategy_id.clone()),
                         Some(strategy_name.clone()),
+                        Some(current_candle.timestamp),
                     ) {
                         println!("  ✅ Position fermée automatiquement: Trade #{} (P&L: {:.2})", 
                             trade.id, trade.realized_pnl);
@@ -133,6 +135,7 @@ pub fn execute_strategies(app: &mut ChartApp) -> Task<crate::app::messages::Mess
                             stop_loss,
                             Some(strategy_id.clone()),
                             Some(strategy_name.clone()),
+                            Some(current_candle.timestamp),
                         );
                         println!("  ✅ Position short ouverte automatiquement: Trade #{}", trade.id);
                     }

@@ -157,7 +157,7 @@ impl TradeHistory {
         stop_loss: Option<f64>,
     ) -> Trade {
         self.open_buy_position_with_tp_sl_and_strategy(
-            symbol, quantity, price, take_profit, stop_loss, None, None
+            symbol, quantity, price, take_profit, stop_loss, None, None, None
         )
     }
     
@@ -171,11 +171,14 @@ impl TradeHistory {
         stop_loss: Option<f64>,
         strategy_id: Option<String>,
         strategy_name: Option<String>,
+        timestamp: Option<i64>,
     ) -> Trade {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
+        let timestamp = timestamp.unwrap_or_else(|| {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64
+        });
         
         let position = Position {
             symbol: symbol.clone(),
@@ -210,7 +213,7 @@ impl TradeHistory {
     
     /// Ferme une position (vente)
     pub fn close_position(&mut self, symbol: &str, quantity: f64, price: f64) -> Option<Trade> {
-        self.close_position_with_strategy(symbol, quantity, price, None, None)
+        self.close_position_with_strategy(symbol, quantity, price, None, None, None)
     }
     
     /// Ferme une position (vente) avec informations de stratégie
@@ -221,6 +224,7 @@ impl TradeHistory {
         price: f64,
         strategy_id: Option<String>,
         strategy_name: Option<String>,
+        timestamp: Option<i64>,
     ) -> Option<Trade> {
         // Trouver une position ouverte correspondante
         let position_index = self.open_positions.iter()
@@ -232,10 +236,12 @@ impl TradeHistory {
             // Calculer le P&L réalisé
             let realized_pnl = (price - position.entry_price) * quantity.min(position.quantity);
             
-            let timestamp = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs() as i64;
+            let timestamp = timestamp.unwrap_or_else(|| {
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs() as i64
+            });
             
             let trade = Trade {
                 id: self.next_trade_id,
@@ -279,7 +285,7 @@ impl TradeHistory {
         stop_loss: Option<f64>,
     ) -> Trade {
         self.open_sell_position_with_tp_sl_and_strategy(
-            symbol, quantity, price, take_profit, stop_loss, None, None
+            symbol, quantity, price, take_profit, stop_loss, None, None, None
         )
     }
     
@@ -293,11 +299,14 @@ impl TradeHistory {
         stop_loss: Option<f64>,
         strategy_id: Option<String>,
         strategy_name: Option<String>,
+        timestamp: Option<i64>,
     ) -> Trade {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
+        let timestamp = timestamp.unwrap_or_else(|| {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64
+        });
         
         let position = Position {
             symbol: symbol.clone(),
@@ -333,7 +342,7 @@ impl TradeHistory {
     /// Ferme une position short (achat)
     #[allow(dead_code)] // Pour usage futur
     pub fn close_short_position(&mut self, symbol: &str, quantity: f64, price: f64) -> Option<Trade> {
-        self.close_short_position_with_strategy(symbol, quantity, price, None, None)
+        self.close_short_position_with_strategy(symbol, quantity, price, None, None, None)
     }
     
     /// Ferme une position short (achat) avec informations de stratégie
@@ -344,6 +353,7 @@ impl TradeHistory {
         price: f64,
         strategy_id: Option<String>,
         strategy_name: Option<String>,
+        timestamp: Option<i64>,
     ) -> Option<Trade> {
         // Trouver une position short ouverte correspondante
         let position_index = self.open_positions.iter()
@@ -355,10 +365,12 @@ impl TradeHistory {
             // Calculer le P&L réalisé (pour un short: prix d'entrée - prix de sortie)
             let realized_pnl = (position.entry_price - price) * quantity.min(position.quantity);
             
-            let timestamp = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs() as i64;
+            let timestamp = timestamp.unwrap_or_else(|| {
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs() as i64
+            });
             
             let trade = Trade {
                 id: self.next_trade_id,
@@ -453,7 +465,7 @@ impl TradeHistory {
     }
     
     /// Vérifie et exécute les ordres limit si le prix correspond
-    pub fn check_and_execute_pending_orders(&mut self, symbol: &str, current_price: f64) {
+    pub fn check_and_execute_pending_orders(&mut self, symbol: &str, current_price: f64, timestamp: Option<i64>) {
         let mut orders_to_execute = Vec::new();
         
         // Trouver les ordres qui peuvent être exécutés
@@ -481,26 +493,34 @@ impl TradeHistory {
             match order.trade_type {
                                 TradeType::Buy => {
                                     // Ouvrir une position d'achat avec TP/SL
-                                    self.open_buy_position_with_tp_sl(
+                                    self.open_buy_position_with_tp_sl_and_strategy(
                                         order.symbol.clone(),
                                         order.quantity,
                                         order.limit_price,
                                         order.take_profit,
                                         order.stop_loss,
+                                        None,
+                                        None,
+                                        timestamp,
                                     );
                                 }
                                 TradeType::Sell => {
                                     // Essayer de fermer une position existante
-                                    if let Some(_trade) = self.close_position(&order.symbol, order.quantity, order.limit_price) {
+                                    if let Some(_trade) = self.close_position_with_strategy(
+                                        &order.symbol, order.quantity, order.limit_price, None, None, timestamp
+                                    ) {
                                         // Position fermée
                                     } else {
                                         // Ouvrir une position short avec TP/SL
-                                        self.open_sell_position_with_tp_sl(
+                                        self.open_sell_position_with_tp_sl_and_strategy(
                                             order.symbol.clone(),
                                             order.quantity,
                                             order.limit_price,
                                             order.take_profit,
                                             order.stop_loss,
+                                            None,
+                                            None,
+                                            timestamp,
                                         );
                                     }
                                 }
@@ -509,7 +529,7 @@ impl TradeHistory {
     }
     
     /// Vérifie et exécute les TP/SL des positions ouvertes
-    pub fn check_take_profit_stop_loss(&mut self, symbol: &str, current_price: f64) {
+    pub fn check_take_profit_stop_loss(&mut self, symbol: &str, current_price: f64, timestamp: Option<i64>) {
         let mut positions_to_close = Vec::new();
         
         for (index, position) in self.open_positions.iter().enumerate() {
@@ -542,13 +562,17 @@ impl TradeHistory {
         for (_index, position) in positions_to_close.iter().rev() {
             match position.trade_type {
                 TradeType::Buy => {
-                    if let Some(trade) = self.close_position(&position.symbol, position.quantity, current_price) {
+                    if let Some(trade) = self.close_position_with_strategy(
+                        &position.symbol, position.quantity, current_price, None, None, timestamp
+                    ) {
                         println!("  ✅ TP/SL déclenché: Position #{} fermée (P&L: {:.2} USDT)", 
                             position.symbol, trade.realized_pnl);
                     }
                 }
                 TradeType::Sell => {
-                    if let Some(trade) = self.close_short_position(&position.symbol, position.quantity, current_price) {
+                    if let Some(trade) = self.close_short_position_with_strategy(
+                        &position.symbol, position.quantity, current_price, None, None, timestamp
+                    ) {
                         println!("  ✅ TP/SL déclenché: Position short #{} fermée (P&L: {:.2} USDT)", 
                             position.symbol, trade.realized_pnl);
                     }
