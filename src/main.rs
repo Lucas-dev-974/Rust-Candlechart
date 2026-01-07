@@ -66,9 +66,13 @@ impl ChartApp {
             Message::UpdateProviderToken(provider_type, token) => {
                 handle_update_provider_token(self, provider_type, token)
             }
+            Message::UpdateProviderSecret(provider_type, secret) => {
+                handle_update_provider_secret(self, provider_type, secret)
+            }
             Message::ApplyProviderConfig => handle_apply_provider_config(self),
             Message::SelectProvider(provider_type) => handle_select_provider(self, provider_type),
             Message::CancelProviderConfig => handle_cancel_provider_config(self),
+            Message::OpenBinanceAPIKeys => handle_open_binance_api_keys(),
             
             // === Gestion des settings ===
             Message::SelectColor(field_index, color) => {
@@ -185,6 +189,10 @@ impl ChartApp {
             Message::TestProviderConnection => handle_test_provider_connection(self),
             Message::ProviderConnectionTestComplete(result) => {
                 handle_provider_connection_test_complete(self, result)
+            }
+            Message::FetchAccountInfo => handle_fetch_account_info(self),
+            Message::AccountInfoFetched(result) => {
+                handle_account_info_fetched(self, result)
             }
             Message::UpdateDragPosition(position) => handle_update_drag_position(self, position),
             Message::EndDragSection => handle_end_drag_section(self),

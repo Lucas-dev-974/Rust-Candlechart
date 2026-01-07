@@ -75,8 +75,10 @@ pub enum Message {
     ProviderConfigWindowOpened(window::Id),
     SelectProvider(ProviderType),
     UpdateProviderToken(ProviderType, String),
+    UpdateProviderSecret(ProviderType, String),
     ApplyProviderConfig,
     CancelProviderConfig,
+    OpenBinanceAPIKeys,
     
     // === Messages des panneaux latéraux ===
     ToggleVolumePanel,
@@ -131,6 +133,8 @@ pub enum Message {
     // === Messages de test de connexion au provider ===
     TestProviderConnection,
     ProviderConnectionTestComplete(Result<(), String>),
+    FetchAccountInfo,
+    AccountInfoFetched(Result<Vec<crate::finance_chart::providers::binance::BinanceAccountBalance>, String>),
     
     // === Messages de focus des panneaux ===
     SetRightPanelFocus(bool),

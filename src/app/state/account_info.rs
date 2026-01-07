@@ -83,5 +83,41 @@ impl AccountInfo {
         // Recalculer la marge libre avec le nouveau solde
         self.free_margin = self.total_balance - self.used_margin;
     }
+    
+    /// Met à jour les informations du compte depuis les données Binance
+    /// 
+    /// Les données Binance contiennent les balances pour chaque asset.
+    /// On cherche la balance USDT pour le solde total.
+    pub fn update_from_binance(&mut self, balances: Vec<BinanceAccountBalance>) {
+        // Trouver la balance USDT
+        let usdt_balance = balances.iter()
+            .find(|b| b.asset == "USDT")
+            .map(|b| b.free.parse::<f64>().unwrap_or(0.0))
+            .unwrap_or(0.0);
+        
+        // Mettre à jour le solde total avec la balance USDT disponible
+        self.total_balance = usdt_balance;
+        
+        // La marge utilisée peut être calculée à partir de la balance verrouillée
+        // ou on peut la garder telle quelle si elle est déjà calculée depuis les trades
+        // Pour l'instant, on garde la marge utilisée existante
+        
+        // Recalculer les autres valeurs
+        self.equity = self.total_balance + self.unrealized_pnl;
+        self.free_margin = self.total_balance - self.used_margin;
+        
+        // Mettre à jour le niveau de marge
+        if self.used_margin > 0.0 {
+            self.margin_level = (self.equity / self.used_margin) * 100.0;
+        } else {
+            self.margin_level = 0.0;
+        }
+        
+        // Vérifier les conditions de marge
+        self.margin_call = self.margin_level < 100.0 && self.margin_level > 0.0;
+        self.liquidation = self.margin_level <= 0.0;
+    }
 }
+
+use crate::finance_chart::providers::binance::BinanceAccountBalance;
 

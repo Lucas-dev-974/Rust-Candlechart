@@ -54,6 +54,7 @@ pub fn handle_window_closed(app: &mut ChartApp, id: window::Id) -> Task<crate::a
         Some(WindowType::ProviderConfig) => {
             app.windows.remove_id(WindowType::ProviderConfig);
             app.editing_provider_token.clear();
+            app.editing_provider_secret.clear();
         }
         Some(WindowType::Downloads) => {
             app.windows.remove_id(WindowType::Downloads);

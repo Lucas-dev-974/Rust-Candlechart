@@ -93,6 +93,36 @@ pub fn view_provider_config(app: &ChartApp) -> Element<'_, Message> {
         ]
         .spacing(8);
         
+        // Ajouter le champ secret uniquement pour Binance
+        if provider_type == ProviderType::Binance {
+            let current_secret = app.editing_provider_secret
+                .get(&provider_type)
+                .cloned()
+                .unwrap_or_default();
+            
+            provider_card_content = provider_card_content.push(
+                text_input("API Secret (requis pour récupérer les infos du compte)", &current_secret)
+                    .on_input(move |secret| Message::UpdateProviderSecret(provider_type, secret))
+                    .padding(8)
+            );
+        }
+        
+        // Ajouter le bouton Binance uniquement pour le provider Binance
+        if provider_type == ProviderType::Binance {
+            provider_card_content = provider_card_content.push(
+                row![
+                    button(
+                        text("🔗 Ouvrir Binance API Keys").size(11)
+                    )
+                    .on_press(Message::OpenBinanceAPIKeys)
+                    .padding([4, 8])
+                    .style(view_styles::icon_button_style),
+                    Space::new().width(Length::Fill),
+                ]
+                .align_y(iced::Alignment::Center)
+            );
+        }
+        
         // Ajouter le statut de connexion et le bouton de test pour le provider actif
         if is_active {
             // Badge de statut de connexion

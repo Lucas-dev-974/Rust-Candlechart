@@ -52,6 +52,7 @@ pub struct ChartApp {
     
     // État temporaire pour la fenêtre de configuration des providers
     pub editing_provider_token: HashMap<ProviderType, String>,
+    pub editing_provider_secret: HashMap<ProviderType, String>,
     
     // Compteur de version pour forcer le re-render du canvas
     pub render_version: u64,
@@ -120,9 +121,12 @@ impl ChartApp {
         let chart_style = load_chart_style();
         let provider_config = load_provider_config();
 
-        // Créer le provider Binance avec le token configuré (Arc pour partage efficace)
+        // Créer le provider Binance avec le token et la clé secrète configurés (Arc pour partage efficace)
         let binance_provider = Arc::new(if let Some(config) = provider_config.active_config() {
-            BinanceProvider::with_token(config.api_token.clone())
+            BinanceProvider::with_token_and_secret(
+                config.api_token.clone(),
+                config.api_secret.clone()
+            )
         } else {
             BinanceProvider::new()
         });
@@ -144,6 +148,7 @@ impl ChartApp {
                 chart_style,
                 provider_config,
                 editing_provider_token: HashMap::new(),
+                editing_provider_secret: HashMap::new(),
                 windows: WindowManager::new(main_id),
                 editing_style: None,
                 editing_color_index: None,

@@ -5,6 +5,19 @@
 use crate::finance_chart::core::{Candle, SeriesId};
 use crate::finance_chart::realtime::{RealtimeDataProvider, ProviderError};
 use std::time::Duration;
+use serde::{Deserialize, Serialize};
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
+use hex;
+type HmacSha256 = Hmac<Sha256>;
+
+/// Balance d'un asset dans le compte Binance
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BinanceAccountBalance {
+    pub asset: String,
+    pub free: String,
+    pub locked: String,
+}
 
 /// URL de base de l'API Binance
 const BINANCE_API_BASE: &str = "https://api.binance.com/api/v3";
@@ -22,6 +35,8 @@ pub struct BinanceProvider {
     /// Token API optionnel pour l'authentification
     #[allow(dead_code)]
     api_token: Option<String>,
+    /// Clé secrète API pour la signature HMAC
+    api_secret: Option<String>,
 }
 
 impl BinanceProvider {
@@ -32,16 +47,21 @@ impl BinanceProvider {
 
     /// Crée un nouveau provider avec un timeout personnalisé
     pub fn with_timeout(timeout: Duration) -> Self {
-        Self::with_config(timeout, None)
+        Self::with_config(timeout, None, None)
     }
 
     /// Crée un nouveau provider avec un token API
     pub fn with_token(api_token: Option<String>) -> Self {
-        Self::with_config(Duration::from_secs(DEFAULT_TIMEOUT_SECS), api_token)
+        Self::with_config(Duration::from_secs(DEFAULT_TIMEOUT_SECS), api_token, None)
+    }
+
+    /// Crée un nouveau provider avec un token API et une clé secrète
+    pub fn with_token_and_secret(api_token: Option<String>, api_secret: Option<String>) -> Self {
+        Self::with_config(Duration::from_secs(DEFAULT_TIMEOUT_SECS), api_token, api_secret)
     }
 
     /// Crée un nouveau provider avec une configuration complète
-    pub fn with_config(timeout: Duration, api_token: Option<String>) -> Self {
+    pub fn with_config(timeout: Duration, api_token: Option<String>, api_secret: Option<String>) -> Self {
         let mut client_builder = reqwest::Client::builder()
             .timeout(timeout);
 
@@ -68,7 +88,29 @@ impl BinanceProvider {
             client,
             base_url: BINANCE_API_BASE.to_string(),
             api_token,
+            api_secret,
         }
+    }
+    
+    /// Génère une signature HMAC SHA256 pour une requête Binance
+    fn generate_signature(&self, query_string: &str) -> Result<String, ProviderError> {
+        let secret = self.api_secret.as_ref()
+            .ok_or_else(|| ProviderError::Api {
+                status: None,
+                message: "Clé secrète API non configurée".to_string(),
+            })?;
+        
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
+            .map_err(|e| ProviderError::Api {
+                status: None,
+                message: format!("Erreur création HMAC: {}", e),
+            })?;
+        
+        mac.update(query_string.as_bytes());
+        let result = mac.finalize();
+        let signature = hex::encode(result.into_bytes());
+        
+        Ok(signature)
     }
 
     /// Récupère la dernière bougie de manière asynchrone
@@ -374,7 +416,106 @@ impl BinanceProvider {
         }
     }
 
+    /// Récupère les informations du compte Binance
+    /// 
+    /// Nécessite une signature HMAC pour fonctionner complètement.
+    /// Retourne les balances du compte si la requête réussit.
+    pub async fn get_account_info(&self) -> Result<Vec<BinanceAccountBalance>, ProviderError> {
+        if self.api_token.is_none() {
+            return Err(ProviderError::Api {
+                status: None,
+                message: "Aucun token API configuré".to_string(),
+            });
+        }
+
+        if self.api_secret.is_none() {
+            return Err(ProviderError::Api {
+                status: None,
+                message: "Aucune clé secrète API configurée. L'endpoint /account nécessite une signature HMAC.".to_string(),
+            });
+        }
+
+        // Générer le timestamp en millisecondes
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| ProviderError::Api {
+                status: None,
+                message: format!("Erreur génération timestamp: {}", e),
+            })?
+            .as_millis() as u64;
+
+        // Construire la query string avec le timestamp
+        let query_string = format!("timestamp={}", timestamp);
+        
+        // Générer la signature HMAC (la clé secrète est garantie d'exister ici)
+        let signature = self.generate_signature(&query_string)?;
+        let query_string_with_sig = format!("{}&signature={}", query_string, signature);
+        
+        println!("   Signature générée pour timestamp={}", timestamp);
+
+        let url = format!("{}/account?{}", self.base_url, query_string_with_sig);
+        
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Network(e.to_string()))?;
+
+        let status = response.status();
+        let status_code = status.as_u16();
+        
+        if status.is_success() {
+            let json: serde_json::Value = response
+                .json()
+                .await
+                .map_err(|e| ProviderError::Parse(format!("Erreur parsing JSON: {}", e)))?;
+            
+            // Parser les balances depuis la réponse JSON
+            let balances = json.get("balances")
+                .and_then(|b| b.as_array())
+                .ok_or_else(|| ProviderError::Parse("Champ 'balances' manquant ou invalide".to_string()))?;
+            
+            let mut account_balances = Vec::new();
+            for balance in balances {
+                if let Some(asset) = balance.get("asset").and_then(|a| a.as_str()) {
+                    let free = balance.get("free")
+                        .and_then(|f| f.as_str())
+                        .unwrap_or("0")
+                        .to_string();
+                    let locked = balance.get("locked")
+                        .and_then(|l| l.as_str())
+                        .unwrap_or("0")
+                        .to_string();
+                    
+                    account_balances.push(BinanceAccountBalance {
+                        asset: asset.to_string(),
+                        free,
+                        locked,
+                    });
+                }
+            }
+            
+            Ok(account_balances)
+        } else {
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Erreur inconnue".to_string());
+            
+            Err(ProviderError::Api {
+                status: Some(status_code),
+                message: format!("Erreur API: {}", error_text),
+            })
+        }
+    }
+
     /// Teste la connexion avec authentification
+    /// 
+    /// Utilise l'endpoint /api/v3/account qui nécessite une signature HMAC.
+    /// Si l'API key est valide mais la signature manque, Binance retourne une erreur spécifique
+    /// qui indique que l'API key est valide mais qu'il manque la signature.
+    /// Si l'API key est invalide, on reçoit une erreur différente.
     pub async fn test_authenticated_connection(&self) -> Result<(), ProviderError> {
         if self.api_token.is_none() {
             return Err(ProviderError::Api {
@@ -383,6 +524,8 @@ impl BinanceProvider {
             });
         }
 
+        // Utiliser l'endpoint /api/v3/account qui nécessite une signature
+        // Si l'API key est valide mais la signature manque, Binance retourne une erreur spécifique
         let url = format!("{}/account", self.base_url);
         
         let response = self
@@ -392,18 +535,57 @@ impl BinanceProvider {
             .await
             .map_err(|e| ProviderError::Network(e.to_string()))?;
 
-        if response.status().is_success() {
+        let status = response.status();
+        let status_code = status.as_u16();
+        
+        if status.is_success() {
+            // Si on reçoit un succès, c'est que l'API key ET la signature sont valides
             Ok(())
         } else {
-            let status = response.status().as_u16();
+            // Lire le message d'erreur pour déterminer le type d'erreur
             let error_text = response
                 .text()
                 .await
                 .unwrap_or_else(|_| "Erreur inconnue".to_string());
-            Err(ProviderError::Api {
-                status: Some(status),
-                message: error_text,
-            })
+            
+            // Codes d'erreur Binance pertinents :
+            // -1102 : Paramètre signature manquant (l'API key est valide mais la signature est requise)
+            // -1022 : Signature invalide (l'API key est valide mais la signature est incorrecte)
+            // -2015 : API key invalide
+            // -2014 : API key manquante
+            
+            // Si l'erreur indique que la signature manque ou est invalide, cela signifie que l'API key est valide
+            // Car Binance a accepté l'API key mais rejette la requête à cause de la signature
+            // On cherche le code d'erreur de différentes manières pour être robuste
+            let error_lower = error_text.to_lowercase();
+            if error_text.contains("-1102") 
+                || error_text.contains("-1022")
+                || error_lower.contains("mandatory parameter 'signature'")
+                || error_lower.contains("mandatory parameter \"signature\"")
+                || error_lower.contains("invalid signature")
+                || error_lower.contains("signature was not sent")
+                || error_lower.contains("signature was not sent, was empty/null") {
+                // L'API key est valide mais la signature manque (ce qui est normal pour un test simple)
+                println!("✅ API key valide (signature requise mais non fournie pour le test)");
+                Ok(())
+            } else if error_text.contains("-2015") 
+                || error_text.contains("-2014")
+                || error_lower.contains("invalid api-key")
+                || error_lower.contains("api-key format invalid")
+                || error_lower.contains("invalid api key") {
+                // L'API key est invalide ou manquante
+                Err(ProviderError::Api {
+                    status: Some(status_code),
+                    message: format!("Clé API invalide: {}", error_text),
+                })
+            } else {
+                // Autre erreur - afficher le message complet pour debug
+                println!("⚠️ Erreur API lors du test (code non reconnu): {}", error_text);
+                Err(ProviderError::Api {
+                    status: Some(status_code),
+                    message: format!("Erreur API: {}", error_text),
+                })
+            }
         }
     }
 }
