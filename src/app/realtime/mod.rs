@@ -25,7 +25,7 @@ pub use gaps::{
 };
 pub use download::{load_full_history, download_batch};
 pub use save::save_series_async;
-pub use connection::{test_provider_connection, fetch_account_info};
+pub use connection::{test_provider_connection, fetch_account_info, load_assets};
 
 
 

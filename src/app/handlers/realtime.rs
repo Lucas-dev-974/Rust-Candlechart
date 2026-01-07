@@ -258,3 +258,66 @@ pub fn handle_complete_gaps_complete(
     app.apply_complete_gaps_results(results)
 }
 
+/// Gère le chargement des actifs
+pub fn handle_load_assets(app: &mut ChartApp) -> Task<crate::app::messages::Message> {
+    app.assets_loading = true;
+    crate::app::realtime::load_assets(app)
+}
+
+/// Gère le résultat du chargement des actifs
+pub fn handle_assets_loaded(
+    app: &mut ChartApp,
+    result: Result<Vec<crate::finance_chart::providers::binance::BinanceSymbol>, String>
+) -> Task<crate::app::messages::Message> {
+    use crate::app::persistence::AssetsPersistenceState;
+    
+    app.assets_loading = false;
+    
+    match result {
+        Ok(new_symbols) => {
+            println!("✅ {} actifs récupérés depuis le provider", new_symbols.len());
+            
+            // Charger les actifs existants depuis le fichier
+            let mut persistence_state = AssetsPersistenceState::load_from_file("assets.json")
+                .unwrap_or_else(|_| AssetsPersistenceState::default());
+            
+            // Si on avait déjà des actifs chargés, les utiliser comme base
+            if !app.assets.is_empty() {
+                persistence_state.replace_assets(app.assets.clone());
+            }
+            
+            // Mettre à jour avec les nouveaux actifs (fusionne les nouveaux avec les existants)
+            let new_count = persistence_state.update_assets(new_symbols);
+            
+            if new_count > 0 {
+                println!("🆕 {} nouveaux actifs ajoutés à la liste", new_count);
+            } else {
+                println!("ℹ️ Aucun nouvel actif trouvé, liste à jour");
+            }
+            
+            // Mettre à jour l'état de l'application
+            app.assets = persistence_state.assets.clone();
+            
+            // Sauvegarder dans le fichier JSON
+            if let Err(e) = persistence_state.save_to_file("assets.json") {
+                eprintln!("⚠️ Erreur lors de la sauvegarde des actifs: {}", e);
+            } else {
+                println!("💾 Liste des actifs sauvegardée dans assets.json");
+            }
+        }
+        Err(e) => {
+            eprintln!("❌ Erreur lors du chargement des actifs depuis le provider: {}", e);
+            // Si on a déjà des actifs chargés depuis le fichier, on les garde
+            if app.assets.is_empty() {
+                // Essayer de charger depuis le fichier en cas d'erreur réseau
+                if let Ok(persistence_state) = AssetsPersistenceState::load_from_file("assets.json") {
+                    println!("📂 Utilisation des actifs sauvegardés en cache");
+                    app.assets = persistence_state.assets;
+                }
+            }
+        }
+    }
+    
+    Task::none()
+}
+

@@ -58,6 +58,10 @@ impl ChartApp {
             Message::SettingsWindowOpened(_id) => Task::none(),
             Message::OpenDownloads => handle_open_downloads(self),
             Message::DownloadsWindowOpened(_id) => Task::none(),
+            Message::OpenAssets => handle_open_assets(self),
+            Message::AssetsWindowOpened(_id) => Task::none(),
+            Message::LoadAssets => handle_load_assets(self),
+            Message::AssetsLoaded(result) => handle_assets_loaded(self, result),
             Message::WindowClosed(id) => handle_window_closed(self, id),
             
             // === Gestion de la configuration des providers ===
@@ -313,6 +317,7 @@ impl ChartApp {
             Some(WindowType::Settings) => views::view_settings(self),
             Some(WindowType::ProviderConfig) => views::view_provider_config(self),
             Some(WindowType::Downloads) => views::view_downloads(self),
+            Some(WindowType::Assets) => views::view_assets(self),
             Some(WindowType::Main) | None => views::view_main(self),
         }
     }

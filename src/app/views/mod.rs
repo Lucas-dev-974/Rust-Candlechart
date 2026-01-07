@@ -23,6 +23,7 @@ mod provider;
 mod account;
 mod helpers;
 mod downloads_view;
+mod assets;
 mod context_menu_capture;
 mod crosshair_overlay;
 mod backtest_overlay;
@@ -32,4 +33,5 @@ pub use main_view::view_main;
 pub use settings::view_settings;
 pub use provider::view_provider_config;
 pub use downloads_view::view_downloads;
+pub use assets::view_assets;
 

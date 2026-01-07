@@ -241,6 +241,10 @@ pub fn view_main(app: &ChartApp) -> Element<'_, Message> {
             .on_press(Message::OpenProviderConfig)
             .style(view_styles::icon_button_style),
         Space::new().width(Length::Fixed(10.0)),
+        button("💰 Actifs")
+            .on_press(Message::OpenAssets)
+            .style(view_styles::icon_button_style),
+        Space::new().width(Length::Fixed(10.0)),
         action_buttons,
         Space::new().width(Length::Fixed(10.0)),
         series_select_box(&app.chart_state.series_manager).map(Message::SeriesPanel),

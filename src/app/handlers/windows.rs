@@ -41,6 +41,38 @@ pub fn handle_open_downloads(app: &mut ChartApp) -> Task<crate::app::messages::M
     task.map(Message::DownloadsWindowOpened)
 }
 
+/// Gère l'ouverture de la fenêtre des actifs
+pub fn handle_open_assets(app: &mut ChartApp) -> Task<crate::app::messages::Message> {
+    use crate::app::messages::Message;
+    use crate::app::realtime::load_assets;
+    use crate::app::persistence::AssetsPersistenceState;
+    
+    if app.windows.is_open(WindowType::Assets) {
+        return Task::none();
+    }
+    
+    let (id, task) = window::open(window::Settings {
+        size: Size::new(800.0, 600.0),
+        resizable: true,
+        ..Default::default()
+    });
+    app.windows.set_id(WindowType::Assets, id);
+    
+    // Charger les actifs depuis le fichier JSON d'abord
+    if let Ok(persistence_state) = AssetsPersistenceState::load_from_file("assets.json") {
+        println!("📂 Chargement des actifs depuis le fichier: {} actifs", persistence_state.assets.len());
+        app.assets = persistence_state.assets.clone();
+    } else {
+        println!("ℹ️ Aucun fichier d'actifs trouvé, chargement depuis le provider...");
+    }
+    
+    // Vérifier en arrière-plan s'il y a de nouveaux actifs disponibles
+    Task::batch(vec![
+        task.map(Message::AssetsWindowOpened),
+        load_assets(app),
+    ])
+}
+
 /// Gère la fermeture d'une fenêtre
 pub fn handle_window_closed(app: &mut ChartApp, id: window::Id) -> Task<crate::app::messages::Message> {
     use iced::exit;
@@ -58,6 +90,9 @@ pub fn handle_window_closed(app: &mut ChartApp, id: window::Id) -> Task<crate::a
         }
         Some(WindowType::Downloads) => {
             app.windows.remove_id(WindowType::Downloads);
+        }
+        Some(WindowType::Assets) => {
+            app.windows.remove_id(WindowType::Assets);
         }
         Some(WindowType::Main) => {
             // Quitter l'application quand la fenêtre principale est fermée

@@ -80,6 +80,12 @@ pub enum Message {
     CancelProviderConfig,
     OpenBinanceAPIKeys,
     
+    // === Messages de la fenêtre Actifs ===
+    OpenAssets,
+    AssetsWindowOpened(window::Id),
+    LoadAssets,
+    AssetsLoaded(Result<Vec<crate::finance_chart::providers::binance::BinanceSymbol>, String>),
+    
     // === Messages des panneaux latéraux ===
     ToggleVolumePanel,
     ToggleRSIPanel,

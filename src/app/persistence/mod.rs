@@ -6,6 +6,7 @@ mod panel_persistence;
 mod trading_persistence;
 mod timeframe_persistence;
 mod strategy_persistence;
+mod assets_persistence;
 
 pub use panel_persistence::PanelPersistenceState;
 pub use trading_persistence::TradingPersistenceState;
@@ -14,6 +15,7 @@ pub use strategy_persistence::{
     StrategiesPersistenceState,
     strategy_to_persistence, persistence_to_strategy,
 };
+pub use assets_persistence::AssetsPersistenceState;
 
 
 

@@ -18,6 +18,7 @@ pub use handlers::handle_chart_message;
 pub use windows::{
     handle_open_settings,
     handle_open_downloads,
+    handle_open_assets,
     handle_window_closed,
 };
 pub use series::{

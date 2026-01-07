@@ -84,6 +84,10 @@ pub struct ChartApp {
     
     // État temporaire pour l'édition des stratégies
     pub editing_strategies: HashMap<String, StrategyEditingState>,
+    
+    // État de la fenêtre Actifs
+    pub assets: Vec<crate::finance_chart::providers::binance::BinanceSymbol>,
+    pub assets_loading: bool,
 }
 
 /// État temporaire pour l'édition d'une stratégie
@@ -172,6 +176,8 @@ impl ChartApp {
                 trading_state: load_trading_state(),
                 strategy_manager: StrategyManager::new_or_load("strategies.json"),
                 editing_strategies: HashMap::new(),
+                assets: Vec::new(),
+                assets_loading: false,
             },
             Task::batch(vec![
                 open_task.map(Message::MainWindowOpened),
@@ -191,6 +197,14 @@ impl ChartApp {
                     format!("Téléchargements ({})", count)
                 } else {
                     String::from("Téléchargements")
+                }
+            }
+            Some(WindowType::Assets) => {
+                let count = self.assets.len();
+                if count > 0 {
+                    format!("Actifs disponibles ({})", count)
+                } else {
+                    String::from("Actifs disponibles")
                 }
             }
             Some(WindowType::Main) | None => {

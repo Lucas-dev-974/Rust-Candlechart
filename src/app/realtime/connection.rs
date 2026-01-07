@@ -54,6 +54,21 @@ pub fn test_provider_connection(app: &ChartApp) -> Task<Message> {
     )
 }
 
+/// Charge la liste des actifs disponibles depuis le provider
+pub fn load_assets(app: &ChartApp) -> Task<Message> {
+    let provider = app.binance_provider.clone();
+    
+    println!("🔍 Chargement des actifs disponibles depuis le provider...");
+    
+    Task::perform(
+        async move {
+            provider.get_exchange_info().await
+                .map_err(|e| e.to_string())
+        },
+        Message::AssetsLoaded,
+    )
+}
+
 /// Récupère les informations du compte depuis le provider
 pub fn fetch_account_info(app: &ChartApp) -> Task<Message> {
     // Récupérer le token et la clé secrète depuis la config

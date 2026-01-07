@@ -19,6 +19,38 @@ pub struct BinanceAccountBalance {
     pub locked: String,
 }
 
+/// Information sur un symbole de trading Binance
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BinanceSymbol {
+    pub symbol: String,
+    pub status: String,
+    pub base_asset: String,
+    pub quote_asset: String,
+    /// Prix actuel du symbole (optionnel, peut être None si non récupéré)
+    #[serde(default)]
+    pub price: Option<f64>,
+    /// Volume 24h en quote asset (optionnel, utilisé pour la popularité)
+    #[serde(default)]
+    pub volume_24h: Option<f64>,
+}
+
+/// Réponse de l'API exchangeInfo de Binance
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ExchangeInfoResponse {
+    symbols: Vec<BinanceSymbolInfo>,
+}
+
+/// Information détaillée sur un symbole depuis l'API Binance
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BinanceSymbolInfo {
+    symbol: String,
+    status: String,
+    #[serde(rename = "baseAsset")]
+    base_asset: String,
+    #[serde(rename = "quoteAsset")]
+    quote_asset: String,
+}
+
 /// URL de base de l'API Binance
 const BINANCE_API_BASE: &str = "https://api.binance.com/api/v3";
 
@@ -588,6 +620,173 @@ impl BinanceProvider {
             }
         }
     }
+
+    /// Récupère la liste de tous les symboles de trading disponibles
+    /// 
+    /// Utilise l'endpoint /api/v3/exchangeInfo qui ne nécessite pas d'authentification.
+    /// Cette méthode utilise un timeout plus long (30 secondes) car la réponse peut être volumineuse.
+    pub async fn get_exchange_info(&self) -> Result<Vec<BinanceSymbol>, ProviderError> {
+        let url = format!("{}/exchangeInfo", self.base_url);
+        
+        // Créer un client temporaire avec un timeout plus long pour cette requête
+        // car la réponse peut contenir beaucoup de symboles et prendre du temps
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .map_err(|e| ProviderError::Network(format!("Erreur création client HTTP: {}", e)))?;
+        
+        let response = client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Network(e.to_string()))?;
+
+        let status = response.status();
+        
+        if status.is_success() {
+            let json: ExchangeInfoResponse = response
+                .json()
+                .await
+                .map_err(|e| ProviderError::Parse(format!("Erreur parsing JSON: {}", e)))?;
+            
+            // Convertir les symboles en format simplifié et filtrer seulement ceux qui sont actifs
+            let mut symbols: Vec<BinanceSymbol> = json.symbols
+                .into_iter()
+                .filter(|s| s.status == "TRADING")
+                .map(|s| BinanceSymbol {
+                    symbol: s.symbol,
+                    status: s.status,
+                    base_asset: s.base_asset,
+                    quote_asset: s.quote_asset,
+                    price: None,
+                    volume_24h: None,
+                })
+                .collect();
+            
+            // Enrichir avec les prix et volumes 24h
+            match self.get_ticker_24hr().await {
+                Ok(tickers) => {
+                    println!("📊 Récupération des statistiques 24h: {} tickers reçus", tickers.len());
+                    let mut ticker_map: std::collections::HashMap<String, (f64, f64)> = std::collections::HashMap::new();
+                    let mut parsed_count = 0;
+                    let mut failed_count = 0;
+                    
+                    for t in tickers {
+                        match (t.last_price.parse::<f64>(), t.quote_volume.parse::<f64>()) {
+                            (Ok(price), Ok(volume)) => {
+                                ticker_map.insert(t.symbol.clone(), (price, volume));
+                                parsed_count += 1;
+                            }
+                            _ => {
+                                failed_count += 1;
+                                if failed_count <= 5 {
+                                    eprintln!("⚠️ Erreur parsing ticker pour {}: price={}, volume={}", 
+                                        t.symbol, t.last_price, t.quote_volume);
+                                }
+                            }
+                        }
+                    }
+                    
+                    if failed_count > 5 {
+                        eprintln!("⚠️ {} autres tickers ont échoué lors du parsing", failed_count - 5);
+                    }
+                    
+                    println!("✅ {} tickers parsés avec succès", parsed_count);
+                    
+                    // Enrichir les symboles avec les prix et volumes
+                    let mut enriched_count = 0;
+                    for symbol in &mut symbols {
+                        if let Some((price, volume)) = ticker_map.get(&symbol.symbol) {
+                            symbol.price = Some(*price);
+                            symbol.volume_24h = Some(*volume);
+                            enriched_count += 1;
+                        }
+                    }
+                    
+                    println!("✅ {} symboles enrichis avec prix et volume", enriched_count);
+                }
+                Err(e) => {
+                    eprintln!("❌ Erreur lors de la récupération des statistiques 24h: {}", e);
+                    eprintln!("   Les symboles seront affichés sans prix ni volume");
+                }
+            }
+            
+            // Trier par volume 24h décroissant (popularité)
+            symbols.sort_by(|a, b| {
+                let vol_a = a.volume_24h.unwrap_or(0.0);
+                let vol_b = b.volume_24h.unwrap_or(0.0);
+                vol_b.partial_cmp(&vol_a).unwrap_or(std::cmp::Ordering::Equal)
+            });
+            
+            Ok(symbols)
+        } else {
+            let status_code = status.as_u16();
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Erreur inconnue".to_string());
+            
+            Err(ProviderError::Api {
+                status: Some(status_code),
+                message: format!("Erreur API: {}", error_text),
+            })
+        }
+    }
+
+    /// Récupère les statistiques 24h pour tous les symboles
+    /// 
+    /// Utilise l'endpoint /api/v3/ticker/24hr qui retourne les prix et volumes.
+    /// Cette méthode utilise un timeout plus long (30 secondes) car la réponse peut être volumineuse.
+    async fn get_ticker_24hr(&self) -> Result<Vec<Ticker24hr>, ProviderError> {
+        let url = format!("{}/ticker/24hr", self.base_url);
+        
+        // Créer un client temporaire avec un timeout plus long pour cette requête
+        // car la réponse peut contenir beaucoup de tickers et prendre du temps
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .map_err(|e| ProviderError::Network(format!("Erreur création client HTTP: {}", e)))?;
+        
+        println!("🔍 Récupération des statistiques 24h depuis {}", url);
+        
+        let response = client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Network(e.to_string()))?;
+
+        let status = response.status();
+        
+        if status.is_success() {
+            let tickers: Vec<Ticker24hr> = response
+                .json()
+                .await
+                .map_err(|e| ProviderError::Parse(format!("Erreur parsing JSON: {}", e)))?;
+            
+            Ok(tickers)
+        } else {
+            let status_code = status.as_u16();
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Erreur inconnue".to_string());
+            
+            Err(ProviderError::Api {
+                status: Some(status_code),
+                message: format!("Erreur API: {}", error_text),
+            })
+        }
+    }
+}
+
+/// Statistiques 24h d'un symbole depuis l'API Binance
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Ticker24hr {
+    symbol: String,
+    #[serde(rename = "lastPrice")]
+    last_price: String,
+    #[serde(rename = "quoteVolume")]
+    quote_volume: String,
 }
 
 impl Default for BinanceProvider {

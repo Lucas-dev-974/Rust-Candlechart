@@ -9,6 +9,7 @@ pub enum WindowType {
     Settings,
     ProviderConfig,
     Downloads,
+    Assets,
 }
 
 /// Gestionnaire de fenêtres simplifié
@@ -18,6 +19,7 @@ pub struct WindowManager {
     settings_window_id: Option<window::Id>,
     provider_config_window_id: Option<window::Id>,  
     downloads_window_id: Option<window::Id>,
+    assets_window_id: Option<window::Id>,
 }
 
 impl WindowManager {
@@ -27,6 +29,7 @@ impl WindowManager {
             settings_window_id: None,
             provider_config_window_id: None,
             downloads_window_id: None,
+            assets_window_id: None,
         }
     }
     
@@ -36,6 +39,7 @@ impl WindowManager {
             WindowType::Settings => self.settings_window_id,
             WindowType::ProviderConfig => self.provider_config_window_id,
             WindowType::Downloads => self.downloads_window_id,
+            WindowType::Assets => self.assets_window_id,
         }
     }
     
@@ -45,6 +49,7 @@ impl WindowManager {
             WindowType::Settings => self.settings_window_id = Some(id),
             WindowType::ProviderConfig => self.provider_config_window_id = Some(id),
             WindowType::Downloads => self.downloads_window_id = Some(id),
+            WindowType::Assets => self.assets_window_id = Some(id),
         }
     }
     
@@ -54,6 +59,7 @@ impl WindowManager {
             WindowType::Settings => self.settings_window_id = None,
             WindowType::ProviderConfig => self.provider_config_window_id = None,
             WindowType::Downloads => self.downloads_window_id = None,
+            WindowType::Assets => self.assets_window_id = None,
         }
     }
     
@@ -70,6 +76,8 @@ impl WindowManager {
             Some(WindowType::ProviderConfig)
         } else if self.downloads_window_id == Some(id) {
             Some(WindowType::Downloads)
+        } else if self.assets_window_id == Some(id) {
+            Some(WindowType::Assets)
         } else {
             None
         }

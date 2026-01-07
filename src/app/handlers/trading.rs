@@ -345,14 +345,35 @@ pub fn handle_place_sell_order(app: &mut ChartApp) -> Task<crate::app::messages:
 /// Gère le toggle du type de compte
 pub fn handle_toggle_account_type(app: &mut ChartApp) -> Task<crate::app::messages::Message> {
     use crate::app::state::AccountType;
+    use crate::app::realtime::fetch_account_info;
     
     // Basculer entre démo et réel
-    let new_type = if app.account_type.is_demo() {
+    let was_demo = app.account_type.is_demo();
+    let new_type = if was_demo {
         AccountType::Real
     } else {
         AccountType::Demo
     };
     app.account_type.set_account_type(new_type);
+    
+    // Si on passe du mode paper au mode réel, récupérer les informations du compte
+    if was_demo && app.account_type.is_real() {
+        // Vérifier que le provider est configuré avec token et secret
+        let has_config = app.provider_config
+            .active_config()
+            .map(|config| {
+                config.api_token.is_some() && config.api_secret.is_some()
+            })
+            .unwrap_or(false);
+        
+        if has_config {
+            println!("🔄 Passage en mode réel : mise à jour des informations du compte...");
+            return fetch_account_info(app);
+        } else {
+            println!("ℹ️ Passage en mode réel : configurez votre provider (API key et secret) pour récupérer les informations du compte.");
+        }
+    }
+    
     Task::none()
 }
 
