@@ -130,6 +130,121 @@ fn create_positions_section(app: &ChartApp) -> Element<'_, Message> {
     .into()
 }
 
+/// Formate un nombre selon sa valeur (plus de décimales pour les petits nombres)
+fn format_balance(value: f64) -> String {
+    if value >= 1000.0 {
+        format!("{:.2}", value)
+    } else if value >= 1.0 {
+        format!("{:.4}", value)
+    } else if value >= 0.0001 {
+        format!("{:.6}", value)
+    } else {
+        format!("{:.8}", value)
+    }
+}
+
+/// Crée la section des balances des actifs
+fn create_assets_section(app: &ChartApp) -> Element<'_, Message> {
+    let balances = &app.account_info.asset_balances;
+    
+    let mut assets_content = column![
+        row![
+            text("Actifs du compte")
+                .size(14)
+                .color(colors::TEXT_PRIMARY),
+            Space::new().width(Length::Fill),
+            text(format!("({} actifs)", balances.len()))
+                .size(11)
+                .color(colors::TEXT_SECONDARY),
+        ]
+        .align_y(iced::Alignment::Center),
+        Space::new().height(Length::Fixed(12.0)),
+    ]
+    .spacing(8);
+    
+    if balances.is_empty() {
+        assets_content = assets_content.push(
+            text("Aucun actif disponible")
+                .size(12)
+                .color(colors::TEXT_SECONDARY)
+        );
+    } else {
+        // En-tête du tableau
+        assets_content = assets_content.push(
+            row![
+                text("Actif")
+                    .size(11)
+                    .color(colors::TEXT_SECONDARY)
+                    .width(Length::Fixed(70.0)),
+                text("Total")
+                    .size(11)
+                    .color(colors::TEXT_SECONDARY)
+                    .width(Length::Fixed(100.0)),
+                text("Libre")
+                    .size(11)
+                    .color(colors::TEXT_SECONDARY)
+                    .width(Length::Fixed(100.0)),
+                text("Verrouillé")
+                    .size(11)
+                    .color(colors::TEXT_SECONDARY)
+                    .width(Length::Fixed(100.0)),
+            ]
+            .spacing(10)
+        );
+        
+        assets_content = assets_content.push(Space::new().height(Length::Fixed(8.0)));
+        
+        // Afficher les actifs avec un solde > 0, triés par solde décroissant
+        for balance in balances.iter().take(30) {  // Limiter à 30 actifs pour l'affichage
+            let total_str = format_balance(balance.total);
+            let free_str = format_balance(balance.free);
+            let locked_str = format_balance(balance.locked);
+            
+            assets_content = assets_content.push(
+                row![
+                    text(format!("{}", balance.asset))
+                        .size(12)
+                        .color(colors::TEXT_PRIMARY)
+                        .width(Length::Fixed(70.0)),
+                    text(total_str)
+                        .size(11)
+                        .color(colors::TEXT_PRIMARY)
+                        .width(Length::Fixed(100.0)),
+                    text(free_str)
+                        .size(11)
+                        .color(Color::from_rgb(0.0, 0.8, 0.0))
+                        .width(Length::Fixed(100.0)),
+                    text(locked_str)
+                        .size(11)
+                        .color(if balance.locked > 0.0 {
+                            Color::from_rgb(0.8, 0.6, 0.0)
+                        } else {
+                            colors::TEXT_SECONDARY
+                        })
+                        .width(Length::Fixed(100.0)),
+                ]
+                .spacing(10)
+                .align_y(iced::Alignment::Center)
+            );
+            
+            assets_content = assets_content.push(Space::new().height(Length::Fixed(4.0)));
+        }
+        
+        if balances.len() > 30 {
+            assets_content = assets_content.push(Space::new().height(Length::Fixed(8.0)));
+            assets_content = assets_content.push(
+                text(format!("... et {} autres actifs", balances.len() - 30))
+                    .size(11)
+                    .color(colors::TEXT_SECONDARY)
+            );
+        }
+    }
+    
+    container(assets_content.padding(12))
+        .style(section_card_style)
+        .into()
+}
+
 /// Vue pour la section "Compte"
 pub fn view_bottom_panel_account(app: &ChartApp) -> Element<'_, Message> {
     let is_demo_mode = app.account_type.is_demo();
@@ -215,6 +330,8 @@ pub fn view_bottom_panel_account(app: &ChartApp) -> Element<'_, Message> {
                 create_pnl_section(app),
                 Space::new().height(Length::Fixed(20.0)),
                 create_positions_section(app),
+                Space::new().height(Length::Fixed(20.0)),
+                create_assets_section(app),
             ]
             .spacing(0)
             .width(Length::Fill)

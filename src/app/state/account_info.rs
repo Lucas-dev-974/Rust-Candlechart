@@ -3,6 +3,17 @@
 //! Ce module définit la structure pour stocker et afficher les informations
 //! d'un compte de trading (solde, marge, positions, etc.)
 
+use crate::finance_chart::providers::binance::BinanceAccountBalance;
+
+/// Balance d'un actif dans le compte
+#[derive(Debug, Clone)]
+pub struct AssetBalance {
+    pub asset: String,
+    pub free: f64,
+    pub locked: f64,
+    pub total: f64,
+}
+
 /// Informations du compte de trading
 #[derive(Debug, Clone)]
 pub struct AccountInfo {
@@ -28,6 +39,8 @@ pub struct AccountInfo {
     pub margin_call: bool,
     /// Indique si le compte est en liquidation
     pub liquidation: bool,
+    /// Toutes les balances des actifs du compte
+    pub asset_balances: Vec<AssetBalance>,
 }
 
 impl Default for AccountInfo {
@@ -44,6 +57,7 @@ impl Default for AccountInfo {
             margin_level: 0.0,
             margin_call: false,
             liquidation: false,
+            asset_balances: Vec::new(),
         }
     }
 }
@@ -87,20 +101,40 @@ impl AccountInfo {
     /// Met à jour les informations du compte depuis les données Binance
     /// 
     /// Les données Binance contiennent les balances pour chaque asset.
-    /// On cherche la balance USDT pour le solde total.
+    /// On stocke toutes les balances et on utilise USDT pour le solde total.
     pub fn update_from_binance(&mut self, balances: Vec<BinanceAccountBalance>) {
-        // Trouver la balance USDT
-        let usdt_balance = balances.iter()
+        // Convertir toutes les balances Binance en AssetBalance
+        self.asset_balances = balances.iter()
+            .filter_map(|b| {
+                let free = b.free.parse::<f64>().ok()?;
+                let locked = b.locked.parse::<f64>().ok()?;
+                let total = free + locked;
+                
+                // Ne garder que les actifs avec un solde > 0
+                if total > 0.0 {
+                    Some(AssetBalance {
+                        asset: b.asset.clone(),
+                        free,
+                        locked,
+                        total,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+        
+        // Trier par solde total décroissant
+        self.asset_balances.sort_by(|a, b| b.total.partial_cmp(&a.total).unwrap_or(std::cmp::Ordering::Equal));
+        
+        // Trouver la balance USDT pour le solde total
+        let usdt_balance = self.asset_balances.iter()
             .find(|b| b.asset == "USDT")
-            .map(|b| b.free.parse::<f64>().unwrap_or(0.0))
+            .map(|b| b.free)
             .unwrap_or(0.0);
         
         // Mettre à jour le solde total avec la balance USDT disponible
         self.total_balance = usdt_balance;
-        
-        // La marge utilisée peut être calculée à partir de la balance verrouillée
-        // ou on peut la garder telle quelle si elle est déjà calculée depuis les trades
-        // Pour l'instant, on garde la marge utilisée existante
         
         // Recalculer les autres valeurs
         self.equity = self.total_balance + self.unrealized_pnl;
@@ -118,6 +152,4 @@ impl AccountInfo {
         self.liquidation = self.margin_level <= 0.0;
     }
 }
-
-use crate::finance_chart::providers::binance::BinanceAccountBalance;
 
