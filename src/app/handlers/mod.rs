@@ -13,6 +13,7 @@ mod realtime;
 mod panels;
 pub mod strategies;
 mod backtest;
+mod assets;
 
 pub use handlers::handle_chart_message;
 pub use windows::{
@@ -33,6 +34,7 @@ pub use realtime::*;
 pub use panels::*;
 pub use strategies::*;
 pub use backtest::*;
+pub use assets::{handle_toggle_asset_selection, handle_select_asset_from_header, handle_asset_series_created};
 
 
 

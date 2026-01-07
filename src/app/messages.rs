@@ -85,6 +85,9 @@ pub enum Message {
     AssetsWindowOpened(window::Id),
     LoadAssets,
     AssetsLoaded(Result<Vec<crate::finance_chart::providers::binance::BinanceSymbol>, String>),
+    ToggleAssetSelection(String), // Symbole de l'actif à sélectionner/désélectionner
+    SelectAssetFromHeader(String), // Sélectionner un actif depuis le header (change la série active)
+    AssetSeriesCreated(String, String, Result<crate::finance_chart::core::SeriesData, String>), // Résultat de la création d'une série pour un actif
     
     // === Messages des panneaux latéraux ===
     ToggleVolumePanel,

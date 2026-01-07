@@ -1,6 +1,6 @@
 //! Vue de la fenêtre des actifs disponibles
 
-use iced::widget::{column, container, row, text, Space, scrollable, button};
+use iced::widget::{column, container, row, text, Space, scrollable, button, checkbox};
 use iced::{Element, Length, Color};
 use crate::app::app_state::ChartApp;
 use crate::app::messages::Message;
@@ -60,6 +60,8 @@ pub fn view_assets(app: &ChartApp) -> Element<'_, Message> {
         // En-tête du tableau
         let header = container(
             row![
+                checkbox(false)
+                    .width(Length::Fixed(30.0)),
                 text("Symbole")
                     .size(12)
                     .color(Color::from_rgb(0.7, 0.7, 0.7))
@@ -128,9 +130,15 @@ pub fn view_assets(app: &ChartApp) -> Element<'_, Message> {
                 Color::from_rgb(0.5, 0.5, 0.5)
             };
 
+            let is_selected = app.selected_assets.contains(&symbol.symbol);
+            let symbol_clone = symbol.symbol.clone();
+
             assets_list = assets_list.push(
                 container(
                     row![
+                        checkbox(is_selected)
+                            .on_toggle(move |_| Message::ToggleAssetSelection(symbol_clone.clone()))
+                            .width(Length::Fixed(30.0)),
                         text(&symbol.symbol)
                             .size(12)
                             .color(Color::from_rgb(0.9, 0.9, 0.9))

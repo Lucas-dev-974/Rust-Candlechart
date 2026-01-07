@@ -220,10 +220,42 @@ pub fn view_main(app: &ChartApp) -> Element<'_, Message> {
     // Pas de boutons d'action pour l'instant
     let action_buttons = row![];
     
-    let header_row = row![
+    // Créer le select d'actifs si des actifs sont sélectionnés
+    let asset_select: Element<'_, Message> = if !app.selected_assets.is_empty() {
+        let mut selected_assets_vec: Vec<String> = app.selected_assets.iter().cloned().collect();
+        selected_assets_vec.sort(); // Trier pour un affichage cohérent
+        
+        let current_symbol = app.chart_state.series_manager
+            .active_series()
+            .next()
+            .map(|s| s.symbol.clone());
+        
+        let selected_value = current_symbol
+            .as_ref()
+            .filter(|sym| selected_assets_vec.contains(sym))
+            .or_else(|| selected_assets_vec.first())
+            .cloned();
+        
+        use iced::widget::pick_list;
+        pick_list(
+            selected_assets_vec,
+            selected_value,
+            move |selected: String| {
+                Message::SelectAssetFromHeader(selected)
+            }
+        )
+        .width(Length::Fixed(200.0))
+        .text_size(18.0)
+        .into()
+    } else {
         text(title_text)
             .size(24)
-            .color(colors::TEXT_PRIMARY),
+            .color(colors::TEXT_PRIMARY)
+            .into()
+    };
+    
+    let header_row = row![
+        asset_select,
         Space::new().width(Length::Fixed(20.0)),
         if downloads_count > 0 {
             text(format!("📥 {} téléchargement(s)", downloads_count))

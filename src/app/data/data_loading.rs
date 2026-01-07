@@ -20,6 +20,66 @@ const BINANCE_INTERVALS: &[&str] = &[
     "1M",
 ];
 
+/// Télécharge une série pour un symbole et un intervalle donnés
+/// Retourne la série créée ou une erreur
+pub async fn download_series_for_symbol_and_interval(
+    provider: Arc<BinanceProvider>,
+    symbol: &str,
+    interval: &str,
+) -> Result<SeriesData, String> {
+    use std::fs;
+    use std::path::PathBuf;
+    
+    let symbol_upper = symbol.to_uppercase();
+    let data_dir = PathBuf::from("data");
+    let provider_dir = data_dir.join("Binance");
+    let symbol_dir = provider_dir.join(&symbol_upper);
+    
+    // Créer les dossiers si nécessaire
+    fs::create_dir_all(&symbol_dir)
+        .map_err(|e| format!("Erreur création dossier {}: {}", symbol_dir.display(), e))?;
+    
+    let series_id = SeriesId::new(format!("{}_{}", symbol_upper, interval));
+    
+    println!("📥 Téléchargement de la série {}_{}...", symbol_upper, interval);
+    
+    // Télécharger toutes les bougies pour cet intervalle
+    let candles = provider.fetch_all_candles_async(&series_id).await
+        .map_err(|e| format!("Erreur téléchargement {}_{}: {}", symbol_upper, interval, e))?;
+    
+    if candles.is_empty() {
+        return Err(format!("Aucune bougie disponible pour {}_{}", symbol_upper, interval));
+    }
+    
+    // Créer une TimeSeries à partir des bougies
+    let mut timeseries = TimeSeries::new();
+    for candle in candles {
+        if let Err(e) = timeseries.push(candle) {
+            eprintln!("  ⚠️ Bougie invalide ignorée: {}", e);
+        }
+    }
+    
+    // Créer SeriesData
+    let series = SeriesData::new(
+        series_id.clone(),
+        symbol_upper.clone(),
+        interval.to_string(),
+        timeseries,
+    );
+    
+    // Sauvegarder dans le fichier JSON
+    use crate::finance_chart::data_loader::interval_to_filename;
+    let file_name = interval_to_filename(interval);
+    let file_path = symbol_dir.join(&file_name);
+    
+    save_to_json(&series, &file_path)
+        .map_err(|e| format!("Erreur sauvegarde {}: {}", file_name, e))?;
+    
+    println!("✅ {}: {} bougies sauvegardées", file_name, series.data.len());
+    
+    Ok(series)
+}
+
 /// Télécharge uniquement les séries 1M (1 mois) pour un symbole donné depuis Binance
 /// et crée les fichiers JSON dans data/Binance/{symbol}/1M.json
 async fn download_1month_series_for_symbol(

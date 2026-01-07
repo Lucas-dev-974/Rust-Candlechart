@@ -62,6 +62,11 @@ impl ChartApp {
             Message::AssetsWindowOpened(_id) => Task::none(),
             Message::LoadAssets => handle_load_assets(self),
             Message::AssetsLoaded(result) => handle_assets_loaded(self, result),
+            Message::ToggleAssetSelection(symbol) => handle_toggle_asset_selection(self, symbol),
+            Message::SelectAssetFromHeader(symbol) => handle_select_asset_from_header(self, symbol),
+            Message::AssetSeriesCreated(symbol, interval, result) => {
+                handle_asset_series_created(self, symbol, interval, result)
+            }
             Message::WindowClosed(id) => handle_window_closed(self, id),
             
             // === Gestion de la configuration des providers ===

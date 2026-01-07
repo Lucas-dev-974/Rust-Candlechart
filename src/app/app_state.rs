@@ -88,6 +88,7 @@ pub struct ChartApp {
     // État de la fenêtre Actifs
     pub assets: Vec<crate::finance_chart::providers::binance::BinanceSymbol>,
     pub assets_loading: bool,
+    pub selected_assets: std::collections::HashSet<String>, // Symboles des actifs sélectionnés
 }
 
 /// État temporaire pour l'édition d'une stratégie
@@ -178,6 +179,12 @@ impl ChartApp {
                 editing_strategies: HashMap::new(),
                 assets: Vec::new(),
                 assets_loading: false,
+                selected_assets: {
+                    // Charger les actifs sélectionnés depuis le fichier
+                    crate::app::persistence::SelectedAssetsPersistenceState::load_from_file("selected_assets.json")
+                        .map(|state| state.to_hashset())
+                        .unwrap_or_else(|_| std::collections::HashSet::new())
+                },
             },
             Task::batch(vec![
                 open_task.map(Message::MainWindowOpened),
