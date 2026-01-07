@@ -132,10 +132,6 @@ pub enum Message {
     /// Déplacer une section vers le panneau du bas
     MoveSectionToBottomPanel(crate::app::state::BottomPanelSection),
 
-    // === Messages de drag des sections ===
-    UpdateDragPosition(iced::Point),
-    EndDragSection,
-
     // === Messages du type de compte ===
     ToggleAccountType,
     

@@ -40,21 +40,3 @@ pub fn handle_tools_panel_message(app: &mut ChartApp, msg: ToolsPanelMessage) ->
     Task::none()
 }
 
-/// Gère les messages de drag des sections
-pub fn handle_update_drag_position(
-    app: &mut ChartApp,
-    position: iced::Point
-) -> Task<crate::app::messages::Message> {
-    use crate::app::state::BottomPanelSection;
-    // TODO: Implémenter la mise à jour de la position du drag
-    // Pour l'instant, on utilise une section par défaut
-    app.ui.drag_overlay = Some((BottomPanelSection::Overview, position));
-    Task::none()
-}
-
-pub fn handle_end_drag_section(app: &mut ChartApp) -> Task<crate::app::messages::Message> {
-    // TODO: Implémenter la fin du drag
-    app.ui.drag_overlay = None;
-    Task::none()
-}
-

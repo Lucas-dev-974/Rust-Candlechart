@@ -158,7 +158,7 @@ fn view_chart_component(app: &ChartApp) -> Element<'_, Message> {
     chart_with_indicators_overlay(layout_stack.into(), app)
 }
 
-/// Vue principale de l'application avec gestion globale du drag & drop
+/// Vue principale de l'application
 pub fn view_main(app: &ChartApp) -> Element<'_, Message> {
     // Récupérer le symbole de la série active pour le titre
     let title_text = app.chart_state.series_manager
@@ -341,17 +341,8 @@ pub fn view_main(app: &ChartApp) -> Element<'_, Message> {
     } else {
         stack![].width(Length::Fill).height(Length::Fill)
     };
-
-    // Overlay pour le drag (si actif)
-    let drag_overlay_element = if let Some((section, position)) = &app.ui.drag_overlay {
-        stack![ container(crate::app::ui::drag_overlay(*section, *position)).width(Length::Fill).height(Length::Fill) ]
-            .width(Length::Fill)
-            .height(Length::Fill)
-    } else {
-        stack![].width(Length::Fill).height(Length::Fill)
-    };
     
-    // Layout complet : Header + Zone principale + Panneau du bas + Menu contextuel + Drag overlay
+    // Layout complet : Header + Zone principale + Panneau du bas + Menu contextuel
     stack![
         column![
             header,
@@ -360,8 +351,7 @@ pub fn view_main(app: &ChartApp) -> Element<'_, Message> {
         ]
         .width(Length::Fill)
         .height(Length::Fill),
-        context_menu_overlay,
-        drag_overlay_element
+        context_menu_overlay
     ]
     .width(Length::Fill)
     .height(Length::Fill)

@@ -57,7 +57,7 @@ pub struct ChartApp {
     // Compteur de version pour forcer le re-render du canvas
     pub render_version: u64,
     
-    // État de l'interface utilisateur (panneaux, sections, drag, menus)
+    // État de l'interface utilisateur (panneaux, sections, menus)
     pub ui: UiState,
     
     // État du type de compte
@@ -165,7 +165,6 @@ impl ChartApp {
                     panels: load_panels_state(),
                     bottom_panel_sections: load_bottom_panel_sections(),
                     section_context_menu: None,
-                    drag_overlay: None,
                     indicators_panel_open: false,
                     backtest_state: crate::app::state::backtest::BacktestState::new(),
                 },
