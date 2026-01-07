@@ -58,19 +58,49 @@ pub fn handle_toggle_tp_sl_enabled(app: &mut ChartApp) -> Task<crate::app::messa
 pub fn handle_place_buy_order(app: &mut ChartApp) -> Task<crate::app::messages::Message> {
     if let Some(quantity) = app.trading_state.parse_quantity() {
         if quantity > 0.0 {
-            // Récupérer le symbole actuel
-            let symbol = app.chart_state.series_manager
-                .active_series()
-                .next()
-                .map(|s| s.symbol.clone())
+            // Utiliser le symbole mémorisé depuis le pick_list si disponible, sinon le symbole de la série active
+            let symbol = app.selected_asset_symbol
+                .clone()
+                .or_else(|| {
+                    app.chart_state.series_manager
+                        .active_series()
+                        .next()
+                        .map(|s| s.symbol.clone())
+                })
                 .unwrap_or_else(|| String::from("UNKNOWN"));
             
-            // Récupérer le prix actuel
-            let current_price = app.chart_state.series_manager
-                .active_series()
-                .next()
-                .and_then(|s| s.data.last_candle().map(|c| c.close))
-                .unwrap_or(0.0);
+            // Récupérer le prix actuel de la série correspondant au symbole mémorisé
+            let current_price = {
+                let active_series = app.chart_state.series_manager.active_series().next();
+                if let Some(ref selected_symbol) = app.selected_asset_symbol {
+                    if let Some(active) = active_series {
+                        if active.symbol == *selected_symbol {
+                            active.data.last_candle().map(|c| c.close).unwrap_or(0.0)
+                        } else {
+                            app.chart_state.series_manager
+                                .all_series()
+                                .find(|s| s.symbol == *selected_symbol && s.interval == active.interval)
+                                .or_else(|| {
+                                    app.chart_state.series_manager
+                                        .all_series()
+                                        .find(|s| s.symbol == *selected_symbol)
+                                })
+                                .and_then(|s| s.data.last_candle().map(|c| c.close))
+                                .unwrap_or(0.0)
+                        }
+                    } else {
+                        app.chart_state.series_manager
+                            .all_series()
+                            .find(|s| s.symbol == *selected_symbol)
+                            .and_then(|s| s.data.last_candle().map(|c| c.close))
+                            .unwrap_or(0.0)
+                    }
+                } else {
+                    active_series
+                        .and_then(|s| s.data.last_candle().map(|c| c.close))
+                        .unwrap_or(0.0)
+                }
+            };
             
             let (price, total_amount) = match app.trading_state.order_type {
                 OrderType::Market => {
@@ -203,19 +233,49 @@ pub fn handle_place_buy_order(app: &mut ChartApp) -> Task<crate::app::messages::
 pub fn handle_place_sell_order(app: &mut ChartApp) -> Task<crate::app::messages::Message> {
     if let Some(quantity) = app.trading_state.parse_quantity() {
         if quantity > 0.0 {
-            // Récupérer le symbole actuel
-            let symbol = app.chart_state.series_manager
-                .active_series()
-                .next()
-                .map(|s| s.symbol.clone())
+            // Utiliser le symbole mémorisé depuis le pick_list si disponible, sinon le symbole de la série active
+            let symbol = app.selected_asset_symbol
+                .clone()
+                .or_else(|| {
+                    app.chart_state.series_manager
+                        .active_series()
+                        .next()
+                        .map(|s| s.symbol.clone())
+                })
                 .unwrap_or_else(|| String::from("UNKNOWN"));
             
-            // Récupérer le prix actuel
-            let current_price = app.chart_state.series_manager
-                .active_series()
-                .next()
-                .and_then(|s| s.data.last_candle().map(|c| c.close))
-                .unwrap_or(0.0);
+            // Récupérer le prix actuel de la série correspondant au symbole mémorisé
+            let current_price = {
+                let active_series = app.chart_state.series_manager.active_series().next();
+                if let Some(ref selected_symbol) = app.selected_asset_symbol {
+                    if let Some(active) = active_series {
+                        if active.symbol == *selected_symbol {
+                            active.data.last_candle().map(|c| c.close).unwrap_or(0.0)
+                        } else {
+                            app.chart_state.series_manager
+                                .all_series()
+                                .find(|s| s.symbol == *selected_symbol && s.interval == active.interval)
+                                .or_else(|| {
+                                    app.chart_state.series_manager
+                                        .all_series()
+                                        .find(|s| s.symbol == *selected_symbol)
+                                })
+                                .and_then(|s| s.data.last_candle().map(|c| c.close))
+                                .unwrap_or(0.0)
+                        }
+                    } else {
+                        app.chart_state.series_manager
+                            .all_series()
+                            .find(|s| s.symbol == *selected_symbol)
+                            .and_then(|s| s.data.last_candle().map(|c| c.close))
+                            .unwrap_or(0.0)
+                    }
+                } else {
+                    active_series
+                        .and_then(|s| s.data.last_candle().map(|c| c.close))
+                        .unwrap_or(0.0)
+                }
+            };
             
             let (price, total_amount) = match app.trading_state.order_type {
                 OrderType::Market => {

@@ -20,11 +20,23 @@ pub fn handle_select_series_by_name(app: &mut ChartApp, series_name: String) -> 
         // Mettre à jour le viewport après activation
         app.chart_state.update_viewport_from_series();
         
-        // Sauvegarder le timeframe sélectionné
+        // NE JAMAIS modifier selected_asset_symbol lors d'un changement de série
+        // Le symbole mémorisé doit être préservé et ne peut être modifié que depuis le pick_list
+        // Cela garantit que le symbole sélectionné par l'utilisateur reste affiché même lors des changements de série
+        
+        // Sauvegarder l'intervalle et préserver le symbole existant
+        // Si selected_asset_symbol est défini, l'utiliser, sinon préserver le symbole déjà sauvegardé
         if let Some(series) = app.chart_state.series_manager.get_series(&series_id) {
+            // Charger l'état existant pour préserver le symbole s'il n'y a pas de symbole mémorisé
+            let existing_state = TimeframePersistenceState::load_from_file("timeframe.json")
+                .ok();
+            
+            let symbol_to_save = app.selected_asset_symbol.clone()
+                .or_else(|| existing_state.and_then(|s| s.symbol));
+            
             let timeframe_state = TimeframePersistenceState {
                 interval: series.interval.clone(),
-                symbol: Some(series.symbol.clone()),
+                symbol: symbol_to_save, // Utiliser le symbole mémorisé ou préserver l'existant
             };
             if let Err(e) = timeframe_state.save_to_file("timeframe.json") {
                 eprintln!("⚠️ Erreur sauvegarde timeframe: {}", e);
@@ -95,13 +107,35 @@ pub fn handle_load_series_complete(
             // Restaurer le timeframe sauvegardé
             if let Some(saved_interval) = crate::app::state::loaders::load_timeframe() {
                 // Chercher une série avec l'intervalle sauvegardé
-                // Prioriser le symbole sauvegardé si disponible
+                // Prioriser les actifs sélectionnés dans le pick_list, puis le symbole sauvegardé
                 let saved_symbol = TimeframePersistenceState::load_from_file("timeframe.json")
                     .ok()
                     .and_then(|state| state.symbol);
                 
-                let series_to_activate = if let Some(ref symbol) = saved_symbol {
-                    // Chercher d'abord avec le symbole sauvegardé
+                // Prioriser les actifs sélectionnés dans le pick_list
+                let series_to_activate = if !app.selected_assets.is_empty() {
+                    // Chercher d'abord parmi les actifs sélectionnés
+                    app.chart_state.series_manager.all_series()
+                        .find(|s| {
+                            s.interval == saved_interval 
+                                && app.selected_assets.contains(&s.symbol)
+                        })
+                        .or_else(|| {
+                            // Sinon utiliser le symbole sauvegardé si disponible
+                            if let Some(ref symbol) = saved_symbol {
+                                app.chart_state.series_manager.all_series()
+                                    .find(|s| s.interval == saved_interval && s.symbol == *symbol)
+                            } else {
+                                None
+                            }
+                        })
+                        .or_else(|| {
+                            // Sinon chercher avec n'importe quel symbole
+                            app.chart_state.series_manager.all_series()
+                                .find(|s| s.interval == saved_interval)
+                        })
+                } else if let Some(ref symbol) = saved_symbol {
+                    // Pas d'actifs sélectionnés, utiliser le symbole sauvegardé
                     app.chart_state.series_manager.all_series()
                         .find(|s| s.interval == saved_interval && s.symbol == *symbol)
                         .or_else(|| {
@@ -116,9 +150,26 @@ pub fn handle_load_series_complete(
                 };
                 
                 if let Some(series) = series_to_activate {
+                    let series_symbol = series.symbol.clone();
                     println!("🔄 Restauration du timeframe sauvegardé: {}", series.full_name());
                     app.chart_state.series_manager.activate_only_series(series.id.clone());
                     app.chart_state.update_viewport_from_series();
+                    
+                    // Restaurer selected_asset_symbol depuis le fichier sauvegardé si nécessaire
+                    // (il a déjà été restauré dans ChartApp::new(), mais on peut le mettre à jour si le symbole sauvegardé
+                    // est différent et valide dans les actifs sélectionnés)
+                    if let Some(ref saved_symbol) = saved_symbol {
+                        if app.selected_assets.contains(saved_symbol) {
+                            // Le symbole sauvegardé est dans les actifs sélectionnés, s'assurer qu'il est bien défini
+                            if app.selected_asset_symbol.as_ref() != Some(saved_symbol) {
+                                app.selected_asset_symbol = Some(saved_symbol.clone());
+                                println!("💾 Symbole restauré depuis timeframe.json: {}", saved_symbol);
+                            }
+                        }
+                    } else if app.selected_asset_symbol.is_none() && !app.selected_assets.is_empty() && app.selected_assets.contains(&series_symbol) {
+                        // Si aucun symbole sauvegardé mais que le symbole de la série restaurée est dans les actifs sélectionnés
+                        app.selected_asset_symbol = Some(series_symbol);
+                    }
                 } else {
                     println!("⚠️ Timeframe sauvegardé '{}' non trouvé, utilisation de la série par défaut", saved_interval);
                 }

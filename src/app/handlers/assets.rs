@@ -58,7 +58,24 @@ pub fn handle_select_asset_from_header(
     
     if let Some(name) = series_name {
         println!("🔄 Changement de série vers: {}", name);
-        handle_select_series_by_name(app, name)
+        
+        // Mémoriser le symbole sélectionné depuis le pick_list
+        app.selected_asset_symbol = Some(symbol.clone());
+        
+        // Sauvegarder le symbole AVANT d'appeler handle_select_series_by_name
+        // pour que handle_select_series_by_name puisse le sauvegarder avec l'intervalle
+        // (handle_select_series_by_name sauvegarde l'intervalle et préserve le symbole mémorisé)
+        let task = handle_select_series_by_name(app, name);
+        
+        // Vérifier que la sauvegarde a bien été effectuée
+        if let Some(series) = app.chart_state.series_manager
+            .active_series()
+            .next()
+        {
+            println!("💾 Symbole et timeframe sauvegardés: {} / {}", symbol, series.interval);
+        }
+        
+        task
     } else {
         // Aucune série trouvée, créer automatiquement la série avec l'intervalle actif
         println!("📥 Aucune série trouvée pour {}, création automatique avec l'intervalle {}...", symbol, active_interval);
@@ -96,8 +113,17 @@ pub fn handle_asset_series_created(
             // Ajouter la série à l'application
             app.chart_state.add_series(series.clone());
             
+            // Mémoriser le symbole sélectionné depuis le pick_list
+            app.selected_asset_symbol = Some(symbol.clone());
+            
             // Sélectionner automatiquement la nouvelle série
-            handle_select_series_by_name(app, series.full_name())
+            // handle_select_series_by_name sauvegardera l'intervalle et préservera le symbole mémorisé
+            let task = handle_select_series_by_name(app, series.full_name());
+            
+            // Vérifier que la sauvegarde a bien été effectuée
+            println!("💾 Symbole et timeframe sauvegardés: {} / {}", symbol, interval);
+            
+            task
         }
         Err(e) => {
             eprintln!("❌ Erreur lors de la création de la série {}_{}: {}", symbol, interval, e);

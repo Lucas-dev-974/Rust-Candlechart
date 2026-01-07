@@ -25,6 +25,7 @@ fn is_valid_time_unit(interval: &str) -> bool {
 /// Crée un élément select box pour les séries
 pub fn series_select_box<'a>(
     series_manager: &'a SeriesManager,
+    selected_asset_symbol: Option<&'a String>,
 ) -> Element<'a, SeriesPanelMessage> {
     // Extraire les intervalles uniques de toutes les séries et filtrer pour ne garder que les unités de temps
     let mut intervals: Vec<String> = series_manager
@@ -48,14 +49,18 @@ pub fn series_select_box<'a>(
         .next()
         .map(|series| series.interval.clone());
 
-    // Récupérer le symbole de la série active pour la sélection future
-    let active_symbol = series_manager
-        .active_series()
-        .next()
-        .map(|series| series.symbol.clone());
+    // Utiliser le symbole mémorisé depuis le pick_list, ou le symbole de la série active comme fallback
+    let preferred_symbol = selected_asset_symbol
+        .cloned()
+        .or_else(|| {
+            series_manager
+                .active_series()
+                .next()
+                .map(|series| series.symbol.clone())
+        });
 
     // Créer une correspondance intervalle -> nom de série
-    // Prioriser les séries avec le symbole actif, sinon prendre la première trouvée
+    // Prioriser les séries avec le symbole préféré (mémorisé ou actif), sinon prendre la première trouvée
     let interval_to_series: Vec<(String, String)> = intervals
         .iter()
         .map(|interval| {
@@ -63,7 +68,7 @@ pub fn series_select_box<'a>(
                 .all_series()
                 .find(|series| {
                     series.interval == *interval
-                        && active_symbol.as_ref().map_or(true, |sym| series.symbol == *sym)
+                        && preferred_symbol.as_ref().map_or(true, |sym| series.symbol == *sym)
                 })
                 .or_else(|| {
                     series_manager
@@ -72,8 +77,8 @@ pub fn series_select_box<'a>(
                 })
                 .map(|series| series.full_name())
                 .unwrap_or_else(|| {
-                    // Fallback: construire le nom avec le symbole actif ou le premier symbole trouvé
-                    if let Some(ref symbol) = active_symbol {
+                    // Fallback: construire le nom avec le symbole préféré ou le premier symbole trouvé
+                    if let Some(ref symbol) = preferred_symbol {
                         format!("{}_{}", symbol, interval)
                     } else {
                         series_manager

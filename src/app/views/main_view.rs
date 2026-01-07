@@ -225,16 +225,15 @@ pub fn view_main(app: &ChartApp) -> Element<'_, Message> {
         let mut selected_assets_vec: Vec<String> = app.selected_assets.iter().cloned().collect();
         selected_assets_vec.sort(); // Trier pour un affichage cohérent
         
-        let current_symbol = app.chart_state.series_manager
-            .active_series()
-            .next()
-            .map(|s| s.symbol.clone());
-        
-        let selected_value = current_symbol
-            .as_ref()
+        // Utiliser le symbole mémorisé depuis le pick_list
+        // Si aucun symbole n'est mémorisé, utiliser le premier actif sélectionné
+        // NE PAS utiliser le symbole de la série active comme fallback pour éviter qu'il change lors des changements de série
+        let current_symbol = app.selected_asset_symbol
+            .clone()
             .filter(|sym| selected_assets_vec.contains(sym))
-            .or_else(|| selected_assets_vec.first())
-            .cloned();
+            .or_else(|| selected_assets_vec.first().cloned());
+        
+        let selected_value = current_symbol;
         
         use iced::widget::pick_list;
         pick_list(
@@ -279,7 +278,7 @@ pub fn view_main(app: &ChartApp) -> Element<'_, Message> {
         Space::new().width(Length::Fixed(10.0)),
         action_buttons,
         Space::new().width(Length::Fixed(10.0)),
-        series_select_box(&app.chart_state.series_manager).map(Message::SeriesPanel),
+        series_select_box(&app.chart_state.series_manager, app.selected_asset_symbol.as_ref()).map(Message::SeriesPanel),
         Space::new().width(Length::Fixed(10.0)),
         status_label
     ]

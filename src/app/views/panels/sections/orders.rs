@@ -11,19 +11,61 @@ use crate::app::{
 
 /// Vue pour la section "Ordres" avec interface de trading
 pub fn view_orders(app: &ChartApp) -> Element<'_, Message> {
-    // Récupérer le symbole actuel
-    let symbol = app.chart_state.series_manager
-        .active_series()
-        .next()
-        .map(|s| s.symbol.clone())
+    // Utiliser le symbole mémorisé depuis le pick_list si disponible, sinon le symbole de la série active
+    // Cela garantit que le panel "Ordres" affiche le même symbole que le pick_list
+    let symbol = app.selected_asset_symbol
+        .clone()
+        .or_else(|| {
+            app.chart_state.series_manager
+                .active_series()
+                .next()
+                .map(|s| s.symbol.clone())
+        })
         .unwrap_or_else(|| String::from("N/A"));
     
     // Récupérer le prix actuel (dernière bougie)
-    let current_price = app.chart_state.series_manager
-        .active_series()
-        .next()
-        .and_then(|s| s.data.last_candle().map(|c| c.close))
-        .unwrap_or(0.0);
+    // Si le symbole mémorisé correspond à la série active, utiliser son prix
+    // Sinon, chercher une série avec le symbole mémorisé
+    let current_price = {
+        let active_series = app.chart_state.series_manager
+            .active_series()
+            .next();
+        
+        // Vérifier si la série active correspond au symbole mémorisé
+        if let Some(ref selected_symbol) = app.selected_asset_symbol {
+            if let Some(active) = active_series {
+                if active.symbol == *selected_symbol {
+                    // La série active correspond au symbole mémorisé, utiliser son prix
+                    active.data.last_candle().map(|c| c.close).unwrap_or(0.0)
+                } else {
+                    // Chercher une série avec le symbole mémorisé et l'intervalle actif
+                    app.chart_state.series_manager
+                        .all_series()
+                        .find(|s| s.symbol == *selected_symbol && s.interval == active.interval)
+                        .or_else(|| {
+                            // Sinon, prendre la première série avec ce symbole
+                            app.chart_state.series_manager
+                                .all_series()
+                                .find(|s| s.symbol == *selected_symbol)
+                        })
+                        .and_then(|s| s.data.last_candle().map(|c| c.close))
+                        .unwrap_or(0.0)
+                }
+            } else {
+                // Pas de série active, chercher une série avec le symbole mémorisé
+                app.chart_state.series_manager
+                    .all_series()
+                    .find(|s| s.symbol == *selected_symbol)
+                    .and_then(|s| s.data.last_candle().map(|c| c.close))
+                    .unwrap_or(0.0)
+            }
+        } else {
+            // Pas de symbole mémorisé, utiliser la série active
+            active_series
+                .and_then(|s| s.data.last_candle().map(|c| c.close))
+                .unwrap_or(0.0)
+        }
+    };
     
     // Récupérer la quantité
     let quantity = app.trading_state.order_quantity.clone();

@@ -89,6 +89,7 @@ pub struct ChartApp {
     pub assets: Vec<crate::finance_chart::providers::binance::BinanceSymbol>,
     pub assets_loading: bool,
     pub selected_assets: std::collections::HashSet<String>, // Symboles des actifs sélectionnés
+    pub selected_asset_symbol: Option<String>, // Dernier symbole sélectionné depuis le pick_list (pour l'affichage)
 }
 
 /// État temporaire pour l'édition d'une stratégie
@@ -184,6 +185,12 @@ impl ChartApp {
                     crate::app::persistence::SelectedAssetsPersistenceState::load_from_file("selected_assets.json")
                         .map(|state| state.to_hashset())
                         .unwrap_or_else(|_| std::collections::HashSet::new())
+                },
+                selected_asset_symbol: {
+                    // Restaurer le symbole sauvegardé depuis timeframe.json
+                    crate::app::persistence::TimeframePersistenceState::load_from_file("timeframe.json")
+                        .ok()
+                        .and_then(|state| state.symbol)
                 },
             },
             Task::batch(vec![
