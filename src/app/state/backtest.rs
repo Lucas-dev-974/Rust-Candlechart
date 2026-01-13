@@ -11,12 +11,10 @@ pub struct BacktestState {
     pub enabled: bool,
     /// Timestamp de départ sélectionné (None si aucune date n'est sélectionnée)
     pub start_timestamp: Option<i64>,
+    /// Timestamp actuel de la bougie en cours de lecture (None si pas encore démarré)
+    pub current_timestamp: Option<i64>,
     /// Indique si le backtest est en cours de lecture
     pub is_playing: bool,
-    /// Index actuel dans les bougies (pour la lecture)
-    pub current_index: usize,
-    /// Index de départ dans les bougies (calculé une fois au démarrage)
-    pub start_index: Option<usize>,
     /// Vitesse de lecture (en millisecondes entre chaque bougie)
     pub playback_speed_ms: u64,
     /// ID de la stratégie sélectionnée pour le backtest (None = aucune stratégie)
@@ -34,9 +32,8 @@ impl Default for BacktestState {
         Self {
             enabled: false,
             start_timestamp: None,
+            current_timestamp: None,
             is_playing: false,
-            current_index: 0,
-            start_index: None,
             playback_speed_ms: 100, // 100ms par défaut (10 bougies par seconde)
             selected_strategy_id: None,
             backtest_trade_history: TradeHistory::new(),
@@ -54,24 +51,18 @@ impl BacktestState {
     /// Démarre le backtest depuis le timestamp sélectionné
     pub fn start(&mut self, start_timestamp: i64) {
         self.start_timestamp = Some(start_timestamp);
+        self.current_timestamp = Some(start_timestamp);
         self.is_playing = true;
-        self.current_index = 0;
         // Réinitialiser l'historique de trades du backtest
         self.backtest_trade_history = TradeHistory::new();
-        // start_index sera calculé dans le handler avec les données de la série
     }
     
     /// Réinitialise le backtest avec un capital initial
     pub fn reset_with_capital(&mut self, initial_capital: f64) {
         self.backtest_trade_history = TradeHistory::new();
         self.initial_capital = initial_capital;
-        self.current_index = 0;
-        self.start_index = None;
-    }
-    
-    /// Définit l'index de départ calculé
-    pub fn set_start_index(&mut self, start_index: usize) {
-        self.start_index = Some(start_index);
+        // Réinitialiser le timestamp actuel au timestamp de départ
+        self.current_timestamp = self.start_timestamp;
     }
     
     /// Met en pause le backtest
@@ -87,8 +78,8 @@ impl BacktestState {
     /// Arrête le backtest
     pub fn stop(&mut self) {
         self.is_playing = false;
-        self.current_index = 0;
-        self.start_index = None;
+        self.current_timestamp = None;
+        self.dragging_playhead = false; // Réinitialiser le drag si actif
         // Optionnel : on peut garder l'historique pour afficher les résultats
         // ou le réinitialiser : self.backtest_trade_history = TradeHistory::new();
     }
@@ -96,44 +87,29 @@ impl BacktestState {
     /// Arrête le backtest en gardant la position actuelle (utilisé quand on atteint la fin)
     pub fn stop_at_end(&mut self) {
         self.is_playing = false;
-        // Ne pas réinitialiser current_index ni start_index pour garder la position
+        // Ne pas réinitialiser current_timestamp pour garder la position
     }
     
-    /// Met à jour l'index actuel
-    pub fn update_index(&mut self, index: usize) {
-        self.current_index = index;
+    /// Met à jour le timestamp actuel
+    pub fn update_timestamp(&mut self, timestamp: i64) {
+        self.current_timestamp = Some(timestamp);
     }
     
     /// Active ou désactive le mode backtest
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
-        // Si on désactive le backtest, arrêter la lecture
+        // Si on désactive le backtest, arrêter la lecture et réinitialiser le drag
         if !enabled {
             self.is_playing = false;
+            self.dragging_playhead = false;
         }
     }
     
     /// Obtient le timestamp actuel de la bougie en cours de lecture
-    /// Retourne None si le backtest n'est pas actif ou si les données ne sont pas disponibles
-    pub fn current_candle_timestamp(&self, all_candles: &[crate::finance_chart::core::Candle]) -> Option<i64> {
-        if all_candles.is_empty() {
-            return None;
-        }
-        
-        if let (Some(start_idx), Some(_start_ts)) = (self.start_index, self.start_timestamp) {
-            let current_idx = start_idx + self.current_index;
-            if current_idx < all_candles.len() {
-                Some(all_candles[current_idx].timestamp)
-            } else {
-                // Si on dépasse, retourner le timestamp de la dernière bougie
-                Some(all_candles[all_candles.len() - 1].timestamp)
-            }
-        } else if let Some(start_ts) = self.start_timestamp {
-            // Si pas d'index mais un timestamp, utiliser le timestamp de départ
-            Some(start_ts)
-        } else {
-            None
-        }
+    /// Retourne None si le backtest n'est pas actif
+    pub fn current_candle_timestamp(&self) -> Option<i64> {
+        // Utiliser current_timestamp s'il est défini, sinon fallback sur start_timestamp
+        self.current_timestamp.or(self.start_timestamp)
     }
     
     /// Calcule les statistiques du backtest

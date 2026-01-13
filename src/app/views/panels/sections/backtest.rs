@@ -177,16 +177,24 @@ pub fn view_backtest(app: &ChartApp) -> Element<'_, Message> {
         
         // État de la lecture
         if is_playing {
-            content = content.push(
-                text(format!("Lecture en cours... (Index: {})", backtest_state.current_index))
-                    .size(12)
-                    .color(Color::from_rgb(0.2, 0.8, 0.3))
-            );
+            if let Some(timestamp) = backtest_state.current_candle_timestamp() {
+                content = content.push(
+                    text(format!("Lecture en cours... ({})", format_timestamp(timestamp)))
+                        .size(12)
+                        .color(Color::from_rgb(0.2, 0.8, 0.3))
+                );
+            } else {
+                content = content.push(
+                    text("Lecture en cours...")
+                        .size(12)
+                        .color(Color::from_rgb(0.2, 0.8, 0.3))
+                );
+            }
         }
         
         // Afficher les statistiques du backtest
         // Toujours afficher les statistiques si le backtest a été démarré au moins une fois
-        if backtest_state.start_index.is_some() || !backtest_state.backtest_trade_history.trades.is_empty() {
+        if backtest_state.current_timestamp.is_some() || !backtest_state.backtest_trade_history.trades.is_empty() {
             let symbol = app.chart_state.series_manager
                 .active_series()
                 .next()

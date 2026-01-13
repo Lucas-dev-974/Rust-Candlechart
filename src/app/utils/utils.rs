@@ -53,3 +53,62 @@ pub fn calculate_expected_candles(interval: &str, period_seconds: i64) -> usize 
     (period_seconds / interval_seconds) as usize
 }
 
+/// Calcule le prochain timestamp selon l'intervalle
+/// 
+/// # Arguments
+/// * `current_timestamp` - Le timestamp actuel
+/// * `interval` - L'intervalle de la série (ex: "1h", "15m", "1d")
+/// 
+/// # Returns
+/// Le prochain timestamp (current_timestamp + interval_seconds)
+pub fn next_timestamp(current_timestamp: i64, interval: &str) -> i64 {
+    current_timestamp + interval_to_seconds(interval)
+}
+
+/// Trouve l'index d'une bougie avec un timestamp donné ou supérieur
+/// Utilise une recherche binaire pour efficacité
+/// 
+/// # Arguments
+/// * `candles` - La liste de bougies triée par timestamp
+/// * `timestamp` - Le timestamp recherché
+/// 
+/// # Returns
+/// L'index de la première bougie avec timestamp >= timestamp, ou None si aucune bougie trouvée
+pub fn find_candle_index_by_timestamp(
+    candles: &[crate::finance_chart::core::Candle],
+    timestamp: i64,
+) -> Option<usize> {
+    if candles.is_empty() {
+        return None;
+    }
+    
+    // Recherche binaire pour trouver la première bougie avec timestamp >= timestamp
+    match candles.binary_search_by_key(&timestamp, |c| c.timestamp) {
+        Ok(idx) => Some(idx), // Timestamp exact trouvé
+        Err(idx) => {
+            // Timestamp non trouvé, idx est la position où il devrait être inséré
+            if idx < candles.len() {
+                Some(idx) // Retourner l'index de la première bougie >= timestamp
+            } else {
+                None // Toutes les bougies sont avant ce timestamp
+            }
+        }
+    }
+}
+
+/// Trouve une bougie par timestamp (exact ou la plus proche >=)
+/// 
+/// # Arguments
+/// * `candles` - La liste de bougies triée par timestamp
+/// * `timestamp` - Le timestamp recherché
+/// 
+/// # Returns
+/// Une référence vers la bougie trouvée, ou None si aucune bougie trouvée
+pub fn find_candle_by_timestamp(
+    candles: &[crate::finance_chart::core::Candle],
+    timestamp: i64,
+) -> Option<&crate::finance_chart::core::Candle> {
+    find_candle_index_by_timestamp(candles, timestamp)
+        .and_then(|idx| candles.get(idx))
+}
+

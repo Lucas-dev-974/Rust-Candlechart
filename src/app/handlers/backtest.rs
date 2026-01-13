@@ -79,8 +79,7 @@ pub fn handle_set_playhead_mode(app: &mut ChartApp) -> Task<Message> {
         
         // Définir la tête de lecture
         app.ui.backtest_state.start_timestamp = Some(timestamp);
-        app.ui.backtest_state.current_index = 0;
-        app.ui.backtest_state.start_index = None;
+        app.ui.backtest_state.current_timestamp = Some(timestamp);
     }
     
     // Fermer le menu contextuel
@@ -121,8 +120,12 @@ pub fn handle_update_drag_playhead(app: &mut ChartApp, position: iced::Point) ->
     let viewport = &app.chart_state.viewport;
     let timestamp = viewport.time_scale().x_to_time(relative_position.x);
     
-    // Mettre à jour le timestamp (mais ne pas réinitialiser les index tant qu'on n'a pas fini)
+    // Mettre à jour les timestamps pour que la position soit visible immédiatement
     app.ui.backtest_state.start_timestamp = Some(timestamp);
+    app.ui.backtest_state.current_timestamp = Some(timestamp);
+    
+    // Forcer le re-render pour que la tête de lecture suive le curseur
+    app.render_version += 1;
     
     Task::none()
 }
@@ -137,9 +140,8 @@ pub fn handle_end_drag_playhead(app: &mut ChartApp) -> Task<Message> {
     // Désactiver le mode drag
     app.ui.backtest_state.dragging_playhead = false;
     
-    // Réinitialiser les index pour que la barre se positionne correctement
-    app.ui.backtest_state.current_index = 0;
-    app.ui.backtest_state.start_index = None;
+    // Synchroniser current_timestamp avec start_timestamp
+    app.ui.backtest_state.current_timestamp = app.ui.backtest_state.start_timestamp;
     
     Task::none()
 }
@@ -153,12 +155,9 @@ pub fn handle_select_backtest_date(app: &mut ChartApp, timestamp: i64) -> Task<M
     
     // Ne pas permettre de redéfinir la position si la lecture est en cours
     if !app.ui.backtest_state.is_playing {
-        // Mettre à jour le timestamp de départ
+        // Mettre à jour le timestamp de départ et actuel
         app.ui.backtest_state.start_timestamp = Some(timestamp);
-        
-        // Réinitialiser les index pour que la barre se positionne sur la nouvelle date
-        app.ui.backtest_state.current_index = 0;
-        app.ui.backtest_state.start_index = None;
+        app.ui.backtest_state.current_timestamp = Some(timestamp);
     }
     
     Task::none()
@@ -166,13 +165,20 @@ pub fn handle_select_backtest_date(app: &mut ChartApp, timestamp: i64) -> Task<M
 
 /// Démarre la lecture du backtest
 pub fn handle_start_backtest(app: &mut ChartApp) -> Task<Message> {
+    use crate::app::utils::utils::find_candle_by_timestamp;
+    
     // Ne permettre le démarrage que si le backtest est activé
     if !app.ui.backtest_state.enabled {
         return Task::none();
     }
     
+    // Forcer l'arrêt du drag si actif
+    if app.ui.backtest_state.dragging_playhead {
+        app.ui.backtest_state.dragging_playhead = false;
+    }
+    
     if let Some(start_timestamp) = app.ui.backtest_state.start_timestamp {
-        // Récupérer la série active pour calculer l'index de départ
+        // Récupérer la série active
         let active_series = app.chart_state.series_manager
             .active_series()
             .next();
@@ -180,22 +186,20 @@ pub fn handle_start_backtest(app: &mut ChartApp) -> Task<Message> {
         if let Some(series) = active_series {
             let candles = series.data.all_candles();
             
-            // Vérifier si on reprend depuis une pause ou si on démarre un nouveau backtest
-            let is_resuming = app.ui.backtest_state.start_index.is_some() 
-                && !app.ui.backtest_state.is_playing;
+            // Vérifier si on reprend depuis une pause
+            // Pour reprendre, il faut avoir un current_timestamp valide ET ne pas être en lecture
+            let is_resuming = app.ui.backtest_state.current_timestamp.is_some()
+                && !app.ui.backtest_state.is_playing
+                && find_candle_by_timestamp(candles, app.ui.backtest_state.current_timestamp.unwrap()).is_some();
             
             if is_resuming {
-                // Reprendre depuis une pause : ne pas réinitialiser current_index
+                // Reprendre depuis une pause : ne pas réinitialiser current_timestamp
                 app.ui.backtest_state.resume();
             } else {
-                // Nouveau démarrage : calculer l'index de départ et réinitialiser
-                let start_index = candles.iter()
-                    .position(|c| c.timestamp >= start_timestamp)
-                    .unwrap_or(0);
-                
-                // Vérifier que l'index de départ est valide
-                if start_index >= candles.len() {
-                    // Si l'index est invalide (timestamp après toutes les bougies), ne pas démarrer
+                // Nouveau démarrage : vérifier que le timestamp existe dans les données
+                if find_candle_by_timestamp(candles, start_timestamp).is_none() {
+                    // Timestamp n'existe pas dans les données, ne pas démarrer
+                    eprintln!("⚠️ Timestamp de départ {} introuvable dans les données", start_timestamp);
                     return Task::none();
                 }
                 
@@ -203,9 +207,8 @@ pub fn handle_start_backtest(app: &mut ChartApp) -> Task<Message> {
                 let initial_capital = app.account_info.total_balance;
                 app.ui.backtest_state.reset_with_capital(initial_capital);
                 
-                // Démarrer le backtest (réinitialise current_index à 0)
+                // Démarrer le backtest (initialise current_timestamp à start_timestamp)
                 app.ui.backtest_state.start(start_timestamp);
-                app.ui.backtest_state.set_start_index(start_index);
                 
                 println!("📊 Backtest démarré avec capital initial: {:.2} USDT", initial_capital);
             }
@@ -254,6 +257,8 @@ pub fn handle_stop_backtest(app: &mut ChartApp) -> Task<Message> {
 
 /// Gère un tick du backtest (appelé périodiquement pendant la lecture)
 pub fn handle_backtest_tick(app: &mut ChartApp) -> Task<Message> {
+    use crate::app::utils::utils::{find_candle_by_timestamp, next_timestamp};
+    
     // Ne traiter les ticks que si le backtest est activé
     if !app.ui.backtest_state.enabled {
         return Task::none();
@@ -263,104 +268,123 @@ pub fn handle_backtest_tick(app: &mut ChartApp) -> Task<Message> {
         return Task::none();
     }
     
-    // Récupérer la série active
-    let active_series = app.chart_state.series_manager
-        .active_series()
-        .next();
+    // Récupérer le timestamp actuel
+    let Some(current_timestamp) = app.ui.backtest_state.current_timestamp else {
+        // Pas de timestamp actuel, arrêter le backtest
+        app.ui.backtest_state.stop();
+        return Task::none();
+    };
     
-    if let Some(series) = active_series {
-        let candles = series.data.all_candles();
+    // Récupérer et cloner les données nécessaires avant d'utiliser app de manière mutable
+    let Some((symbol, interval, candles_vec, series_clone, strategy_id_opt)) = ({
+        let active_series = app.chart_state.series_manager
+            .active_series()
+            .next();
         
-        // Utiliser l'index de départ stocké, ou le recalculer si nécessaire
-        let start_index = if let Some(stored_index) = app.ui.backtest_state.start_index {
-            // Vérifier que l'index stocké est toujours valide
-            if stored_index < candles.len() {
-                stored_index
-            } else {
-                // Si l'index n'est plus valide (série changée ou données modifiées), recalculer
-                let start_timestamp = app.ui.backtest_state.start_timestamp.unwrap_or(0);
-                candles.iter()
-                    .position(|c| c.timestamp >= start_timestamp)
-                    .unwrap_or(0)
-            }
+        if let Some(series) = active_series {
+            let symbol = series.symbol.clone();
+            let interval = series.interval.clone();
+            let candles_vec: Vec<_> = series.data.all_candles().to_vec();
+            let series_clone = series.clone();
+            let strategy_id_opt = app.ui.backtest_state.selected_strategy_id.clone();
+            Some((symbol, interval, candles_vec, series_clone, strategy_id_opt))
         } else {
-            // Si pas d'index stocké, recalculer (ne devrait pas arriver normalement)
-            let start_timestamp = app.ui.backtest_state.start_timestamp.unwrap_or(0);
-            candles.iter()
-                .position(|c| c.timestamp >= start_timestamp)
-                .unwrap_or(0)
-        };
-        
-        // Mettre à jour l'index stocké si on l'a recalculé
-        let needs_update = match app.ui.backtest_state.start_index {
-            Some(stored) => stored != start_index,
-            None => true,
-        };
-        if needs_update {
-            app.ui.backtest_state.set_start_index(start_index);
+            None
+        }
+    }) else {
+        // Pas de série active, arrêter le backtest
+        app.ui.backtest_state.stop();
+        return Task::none();
+    };
+    
+    let candles = &candles_vec[..];
+    
+    if candles.is_empty() {
+        // Pas de bougies, arrêter le backtest
+        app.ui.backtest_state.stop();
+        return Task::none();
+    }
+    
+    // Trouver la bougie actuelle par timestamp
+    let Some(current_candle) = find_candle_by_timestamp(candles, current_timestamp) else {
+        // Timestamp actuel n'existe pas dans les données, arrêter le backtest
+        app.ui.backtest_state.stop_at_end();
+        return Task::none();
+    };
+    
+    // Vérifier si on a atteint la fin (dernière bougie)
+    let last_candle = candles.last().unwrap();
+    if current_candle.timestamp >= last_candle.timestamp {
+        // On est à la fin, arrêter le backtest en gardant la position
+        // Sauvegarder les trades du backtest avant d'arrêter
+        if let Some(ref strategy_id) = app.ui.backtest_state.selected_strategy_id {
+            save_backtest_trades(app, strategy_id);
         }
         
-        let current_index = app.ui.backtest_state.current_index;
-        let current_candle_index = start_index + current_index;
+        app.ui.backtest_state.stop_at_end();
+        return Task::none();
+    }
+    
+    let current_price = current_candle.close;
+    
+    // Vérifier et exécuter les TP/SL des positions ouvertes pour ce symbole dans le backtest
+    // Utiliser le trade_history du backtest, pas celui du compte principal
+    let had_trades_before = !app.ui.backtest_state.backtest_trade_history.trades.is_empty();
+    
+    app.ui.backtest_state.backtest_trade_history.check_take_profit_stop_loss(
+        &symbol, 
+        current_price, 
+        Some(current_candle.timestamp)
+    );
+    
+    // Sauvegarder si des trades ont été fermés par TP/SL
+    let has_trades_after = !app.ui.backtest_state.backtest_trade_history.trades.is_empty();
+    if has_trades_after && had_trades_before {
+        if let Some(ref strategy_id) = app.ui.backtest_state.selected_strategy_id {
+            save_backtest_trades(app, strategy_id);
+        }
+    }
+    
+    // Exécuter la stratégie sélectionnée si elle existe (sur la bougie actuelle)
+    if let Some(strategy_id) = &strategy_id_opt {
+        // Trouver l'index de la bougie actuelle pour execute_backtest_strategy
+        let current_candle_index = candles.iter()
+            .position(|c| c.timestamp == current_candle.timestamp)
+            .unwrap_or(0);
         
-        // Vérifier si on a atteint la fin
-        if current_candle_index >= candles.len() {
-            // Calculer l'index de la dernière bougie valide et le garder
-            if candles.len() > 0 && start_index < candles.len() {
-                let last_valid_index = candles.len() - 1;
-                // Mettre current_index à la position de la dernière bougie
-                app.ui.backtest_state.update_index(last_valid_index - start_index);
-            }
-            
-            // Sauvegarder les trades du backtest avant d'arrêter
+        execute_backtest_strategy(app, strategy_id, &series_clone, current_candle_index);
+    }
+    
+    // Calculer le prochain timestamp selon l'intervalle
+    let next_ts = next_timestamp(current_timestamp, &interval);
+    
+    // Trouver la prochaine bougie disponible (>= next_ts)
+    if let Some(next_candle) = find_candle_by_timestamp(candles, next_ts) {
+        // Vérifier qu'on n'a pas dépassé la fin
+        if next_candle.timestamp > last_candle.timestamp {
+            // La prochaine bougie dépasse la fin, arrêter le backtest
             if let Some(ref strategy_id) = app.ui.backtest_state.selected_strategy_id {
                 save_backtest_trades(app, strategy_id);
             }
-            
-            // Arrêter le backtest en gardant la position
             app.ui.backtest_state.stop_at_end();
             return Task::none();
         }
         
-        // Obtenir la bougie actuelle pour vérifier les TP/SL
-        let current_candle = &candles[current_candle_index];
-        let current_price = current_candle.close;
-        
-        // Vérifier et exécuter les TP/SL des positions ouvertes pour ce symbole dans le backtest
-        // Utiliser le trade_history du backtest, pas celui du compte principal
-        let had_trades_before = !app.ui.backtest_state.backtest_trade_history.trades.is_empty();
-        
-        app.ui.backtest_state.backtest_trade_history.check_take_profit_stop_loss(
-            &series.symbol, 
-            current_price, 
-            Some(current_candle.timestamp)
-        );
-        
-        // Sauvegarder si des trades ont été fermés par TP/SL
-        let has_trades_after = !app.ui.backtest_state.backtest_trade_history.trades.is_empty();
-        if has_trades_after && had_trades_before {
-            if let Some(ref strategy_id) = app.ui.backtest_state.selected_strategy_id {
-                save_backtest_trades(app, strategy_id);
-            }
-        }
-        
-        // Exécuter la stratégie sélectionnée si elle existe (sur la bougie actuelle)
-        if let Some(ref strategy_id) = app.ui.backtest_state.selected_strategy_id {
-            // Cloner les données nécessaires pour éviter les problèmes d'emprunt
-            let strategy_id_clone = strategy_id.clone();
-            let series_clone = series.clone();
-            execute_backtest_strategy(app, &strategy_id_clone, &series_clone, current_candle_index);
-        }
-        
-        // Incrémenter l'index pour passer à la bougie suivante (après avoir traité la bougie actuelle)
-        app.ui.backtest_state.update_index(current_index + 1);
-        
-        // Forcer le re-render
-        app.render_version += 1;
+        // Mettre à jour le timestamp actuel
+        app.ui.backtest_state.update_timestamp(next_candle.timestamp);
     } else {
-        // Si pas de série active, arrêter le backtest
-        app.ui.backtest_state.stop();
+        // Plus de bougies disponibles, arrêter le backtest
+        // Sauvegarder les trades du backtest avant d'arrêter
+        if let Some(ref strategy_id) = app.ui.backtest_state.selected_strategy_id {
+            save_backtest_trades(app, strategy_id);
+        }
+        
+        app.ui.backtest_state.stop_at_end();
+        return Task::none();
     }
+    
+    // Forcer le re-render
+    app.render_version += 1;
     
     Task::none()
 }

@@ -395,18 +395,13 @@ impl<'a> Program<ChartMessage> for ChartProgram<'a> {
             // Vérifier que le backtest est activé avant d'appliquer l'opacité
             if !backtest_state.enabled {
                 (None, false)
-            } else if let Some(active_series) = self.chart_state.series_manager.active_series().next() {
-                let all_candles = active_series.data.all_candles();
-                if let Some(current_ts) = backtest_state.current_candle_timestamp(all_candles) {
-                    // Si le player est en play, cacher les bougies après la barre
-                    let hide = backtest_state.is_playing;
-                    (Some(current_ts), hide)
-                } else if let Some(start_ts) = backtest_state.start_timestamp {
-                    // Si pas de timestamp actuel mais un timestamp de départ, l'utiliser
-                    (Some(start_ts), false)
-                } else {
-                    (None, false)
-                }
+            } else if let Some(current_ts) = backtest_state.current_candle_timestamp() {
+                // Si le player est en play, cacher les bougies après la barre
+                let hide = backtest_state.is_playing;
+                (Some(current_ts), hide)
+            } else if let Some(start_ts) = backtest_state.start_timestamp {
+                // Si pas de timestamp actuel mais un timestamp de départ, l'utiliser
+                (Some(start_ts), false)
             } else {
                 (None, false)
             }
