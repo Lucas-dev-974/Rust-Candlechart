@@ -169,6 +169,8 @@ impl ChartApp {
                     chart_context_menu: None,
                     indicators_panel_open: false,
                     backtest_state: crate::app::state::backtest::BacktestState::new(),
+                    error_messages: Vec::new(),
+                    notifications: crate::app::state::notifications::NotificationManager::new(),
                 },
                 account_type: AccountTypeState::new(),
                 account_info: AccountInfo::new(),
@@ -256,6 +258,12 @@ impl ChartApp {
                     .map(|_| Message::BacktestTick)
             );
         }
+        
+        // Subscription pour mettre à jour les notifications (auto-dismiss)
+        subscriptions.push(
+            iced::time::every(Duration::from_millis(100))
+                .map(|_| Message::UpdateNotifications)
+        );
         
         Subscription::batch(subscriptions)
     }
@@ -486,6 +494,20 @@ impl ChartApp {
             Message::PauseBacktest => handle_pause_backtest(self),
             Message::StopBacktest => handle_stop_backtest(self),
             Message::BacktestTick => handle_backtest_tick(self),
+            
+            // === Gestion des erreurs ===
+            Message::ShowError(error) => handle_show_error(self, error),
+            Message::DismissError(index) => handle_dismiss_error(self, index),
+            Message::ClearAllErrors => handle_clear_all_errors(self),
+            Message::TestError => handle_test_error(self),
+            
+            // === Gestion des notifications ===
+            Message::ShowNotification(notification) => handle_show_notification(self, notification),
+            Message::DismissNotification(id) => handle_dismiss_notification(self, id),
+            Message::ClearAllNotifications => handle_clear_all_notifications(self),
+            Message::UpdateNotifications => handle_update_notifications(self),
+            Message::TestSuccessNotification => handle_test_success_notification(self),
+            Message::TestInfoNotification => handle_test_info_notification(self),
         }
     }
 

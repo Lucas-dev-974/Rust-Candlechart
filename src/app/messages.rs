@@ -192,6 +192,30 @@ pub enum Message {
     ApplyStrategyConfig(String), // Applique les modifications d'une stratégie
     CancelStrategyConfig(String), // Annule les modifications d'une stratégie
     
+    // === Messages de gestion d'erreurs ===
+    /// Afficher un message d'erreur à l'utilisateur
+    ShowError(crate::app::error_handling::AppError),
+    /// Fermer un message d'erreur à l'index donné
+    DismissError(usize),
+    /// Fermer tous les messages d'erreur
+    ClearAllErrors,
+    /// Générer une erreur de test pour vérifier l'implémentation
+    TestError,
+    
+    // === Messages de gestion des notifications ===
+    /// Afficher une notification
+    ShowNotification(crate::app::state::notifications::Notification),
+    /// Fermer une notification par ID
+    DismissNotification(usize),
+    /// Fermer toutes les notifications
+    ClearAllNotifications,
+    /// Mettre à jour les notifications (supprime les expirées)
+    UpdateNotifications,
+    /// Générer une notification de succès de test
+    TestSuccessNotification,
+    /// Générer une notification d'info de test
+    TestInfoNotification,
+    
     // === Messages du backtest ===
     /// Activer ou désactiver le mode backtest
     ToggleBacktestEnabled,

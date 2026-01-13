@@ -5,6 +5,7 @@
 
 use crate::finance_chart::providers::binance::BinanceProvider;
 use crate::finance_chart::realtime::ProviderError;
+use crate::app::error_handling::{retry_with_backoff, RetryConfig, AppError};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -154,13 +155,14 @@ pub fn validate_order(
     Ok(())
 }
 
-/// Place un ordre Market BUY sur Binance
+/// Place un ordre Market BUY sur Binance avec retry automatique
 pub async fn place_market_buy_order(
     provider: &BinanceProvider,
     symbol: &str,
     quantity: f64,
 ) -> Result<OrderResponse, ProviderError> {
-    place_order(
+    let context = format!("placement d'ordre Market BUY {}", symbol);
+    place_order_with_retry(
         provider,
         symbol,
         "BUY",
@@ -168,17 +170,19 @@ pub async fn place_market_buy_order(
         Some(quantity),
         None,
         None,
+        &context,
     )
     .await
 }
 
-/// Place un ordre Market SELL sur Binance
+/// Place un ordre Market SELL sur Binance avec retry automatique
 pub async fn place_market_sell_order(
     provider: &BinanceProvider,
     symbol: &str,
     quantity: f64,
 ) -> Result<OrderResponse, ProviderError> {
-    place_order(
+    let context = format!("placement d'ordre Market SELL {}", symbol);
+    place_order_with_retry(
         provider,
         symbol,
         "SELL",
@@ -186,11 +190,12 @@ pub async fn place_market_sell_order(
         Some(quantity),
         None,
         None,
+        &context,
     )
     .await
 }
 
-/// Place un ordre Limit BUY sur Binance
+/// Place un ordre Limit BUY sur Binance avec retry automatique
 pub async fn place_limit_buy_order(
     provider: &BinanceProvider,
     symbol: &str,
@@ -198,7 +203,8 @@ pub async fn place_limit_buy_order(
     price: f64,
     time_in_force: Option<&str>,
 ) -> Result<OrderResponse, ProviderError> {
-    place_order(
+    let context = format!("placement d'ordre Limit BUY {}", symbol);
+    place_order_with_retry(
         provider,
         symbol,
         "BUY",
@@ -206,11 +212,12 @@ pub async fn place_limit_buy_order(
         Some(quantity),
         Some(price),
         time_in_force,
+        &context,
     )
     .await
 }
 
-/// Place un ordre Limit SELL sur Binance
+/// Place un ordre Limit SELL sur Binance avec retry automatique
 pub async fn place_limit_sell_order(
     provider: &BinanceProvider,
     symbol: &str,
@@ -218,7 +225,8 @@ pub async fn place_limit_sell_order(
     price: f64,
     time_in_force: Option<&str>,
 ) -> Result<OrderResponse, ProviderError> {
-    place_order(
+    let context = format!("placement d'ordre Limit SELL {}", symbol);
+    place_order_with_retry(
         provider,
         symbol,
         "SELL",
@@ -226,12 +234,83 @@ pub async fn place_limit_sell_order(
         Some(quantity),
         Some(price),
         time_in_force,
+        &context,
     )
     .await
 }
 
-/// Fonction générique pour placer un ordre sur Binance
-async fn place_order(
+/// Fonction helper pour placer un ordre avec retry automatique
+async fn place_order_with_retry(
+    provider: &BinanceProvider,
+    symbol: &str,
+    side: &str,
+    order_type: &str,
+    quantity: Option<f64>,
+    price: Option<f64>,
+    time_in_force: Option<&str>,
+    context: &str,
+) -> Result<OrderResponse, ProviderError> {
+    let provider = provider.clone();
+    let symbol = symbol.to_string();
+    let side = side.to_string();
+    let order_type = order_type.to_string();
+    let time_in_force = time_in_force.map(|s| s.to_string());
+    let context = context.to_string();
+    
+    let context_for_log = context.clone();
+    let retry_result = retry_with_backoff(
+        {
+            let provider = provider.clone();
+            let symbol = symbol.clone();
+            let side = side.clone();
+            let order_type = order_type.clone();
+            let time_in_force = time_in_force.clone();
+            let context = context.clone();
+            move || {
+                let provider = provider.clone();
+                let symbol = symbol.clone();
+                let side = side.clone();
+                let order_type = order_type.clone();
+                let time_in_force_clone = time_in_force.clone();
+                let quantity = quantity;
+                let price = price;
+                let context = context.clone();
+                async move {
+                    place_order_internal(
+                        &provider,
+                        &symbol,
+                        &side,
+                        &order_type,
+                        quantity,
+                        price,
+                        time_in_force_clone.as_deref(),
+                    )
+                    .await
+                    .map_err(|e| {
+                        let ctx = context.clone();
+                        AppError::from_provider_error(e, &ctx)
+                    })
+                }
+            }
+        },
+        RetryConfig::for_api_calls(),
+        &context_for_log,
+    )
+    .await;
+    
+    match retry_result {
+        crate::app::error_handling::RetryResult::Success { value, .. } => Ok(value),
+        crate::app::error_handling::RetryResult::Failed { error, .. } => {
+            Err(ProviderError::Api {
+                status: None,
+                message: error.user_message,
+            })
+        }
+    }
+}
+
+/// Fonction générique pour placer un ordre sur Binance (utilisée par les fonctions publiques avec retry)
+async fn place_order_internal(
     provider: &BinanceProvider,
     symbol: &str,
     side: &str,
@@ -354,43 +433,104 @@ async fn place_order(
 
 /// Parse les erreurs Binance communes et retourne un message utilisateur-friendly
 fn parse_binance_error(error_text: &str, status_code: u16) -> String {
-    // Codes d'erreur Binance courants
-    if error_text.contains("-2010") || error_text.contains("NEW_ORDER_REJECTED") {
-        return format!("Ordre rejeté: {}", error_text);
+    // Essayer de parser le JSON d'erreur Binance si disponible
+    if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(error_text) {
+        if let Some(code) = json_value.get("code").and_then(|v| v.as_i64()) {
+            let msg = json_value.get("msg")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            
+            match code {
+                -2010 => return format!("Ordre rejeté: {}", msg),
+                -2011 => return format!("Ordre inconnu: {}", msg),
+                -2013 => return format!("Symbole non trouvé: {}", msg),
+                -1013 => return format!("Prix invalide: {}", msg),
+                -1010 => return format!("Quantité invalide: {}", msg),
+                -2019 => return format!("Solde insuffisant: {}", msg),
+                -1021 => return format!("Erreur de synchronisation temporelle. Vérifiez l'heure de votre système: {}", msg),
+                -1022 => return format!("Signature invalide. Vérifiez votre clé secrète API: {}", msg),
+                -2015 => return format!("Clé API invalide ou expirée: {}", msg),
+                -2014 => return format!("Clé API manquante: {}", msg),
+                -1102 => return format!("Paramètre manquant: {}", msg),
+                -1104 => return format!("Paramètre obligatoire manquant: {}", msg),
+                -1105 => return format!("Paramètre invalide: {}", msg),
+                -1106 => return format!("Paramètre invalide (type): {}", msg),
+                -1111 => return format!("Précision invalide: {}", msg),
+                -1112 => return format!("Nombre invalide: {}", msg),
+                -1114 => return format!("Prix de marché non disponible: {}", msg),
+                -1115 => return format!("Prix invalide (trop bas ou trop haut): {}", msg),
+                -1116 => return format!("Quantité invalide (trop basse ou trop haute): {}", msg),
+                -1117 => return format!("Prix invalide (trop de décimales): {}", msg),
+                -1118 => return format!("Quantité invalide (trop de décimales): {}", msg),
+                -1119 => return format!("Multiplicateur invalide: {}", msg),
+                -1120 => return format!("Quantité invalide (doit être un multiple de): {}", msg),
+                -1121 => return format!("Symbole invalide: {}", msg),
+                -1125 => return format!("Filtre invalide: {}", msg),
+                -1127 => return format!("Listen key invalide: {}", msg),
+                -1128 => return format!("Plus de 24 heures depuis la création de la listen key: {}", msg),
+                -2021 => return format!("Ordre rejeté (trop de requêtes): {}", msg),
+                _ => return format!("Erreur Binance (code {}): {}", code, msg),
+            }
+        }
     }
-    if error_text.contains("-2011") || error_text.contains("UNKNOWN_ORDER") {
-        return format!("Ordre inconnu: {}", error_text);
+    
+    // Fallback: parsing par texte
+    let error_lower = error_text.to_lowercase();
+    
+    if error_lower.contains("-2010") || error_lower.contains("new_order_rejected") {
+        return format!("Ordre rejeté. Vérifiez les paramètres de votre ordre.");
     }
-    if error_text.contains("-2013") || error_text.contains("NO_SUCH_SYMBOL") {
-        return format!("Symbole non trouvé: {}", error_text);
+    if error_lower.contains("-2011") || error_lower.contains("unknown_order") {
+        return format!("Ordre inconnu. L'ordre spécifié n'existe pas.");
     }
-    if error_text.contains("-1013") || error_text.contains("INVALID_PRICE") {
-        return format!("Prix invalide: {}", error_text);
+    if error_lower.contains("-2013") || error_lower.contains("no_such_symbol") {
+        return format!("Symbole non trouvé. Vérifiez que le symbole existe et est tradable.");
     }
-    if error_text.contains("-1010") || error_text.contains("INVALID_QUANTITY") {
-        return format!("Quantité invalide: {}", error_text);
+    if error_lower.contains("-1013") || error_lower.contains("invalid_price") {
+        return format!("Prix invalide. Le prix doit respecter les règles de précision du symbole.");
     }
-    if error_text.contains("-2019") || error_text.contains("INSUFFICIENT_BALANCE") {
-        return format!("Solde insuffisant: {}", error_text);
+    if error_lower.contains("-1010") || error_lower.contains("invalid_quantity") {
+        return format!("Quantité invalide. La quantité doit respecter les règles de précision du symbole.");
     }
-    if error_text.contains("-1021") || error_text.contains("TIMESTAMP") {
-        return format!("Erreur de synchronisation temporelle: {}", error_text);
+    if error_lower.contains("-2019") || error_lower.contains("insufficient_balance") {
+        return format!("Solde insuffisant. Vous n'avez pas assez de fonds pour cet ordre.");
     }
-    if error_text.contains("-1022") || error_text.contains("INVALID_SIGNATURE") {
-        return format!("Signature invalide: {}", error_text);
+    if error_lower.contains("-1021") || error_lower.contains("timestamp") {
+        return format!("Erreur de synchronisation temporelle. Vérifiez que l'heure de votre système est correcte.");
     }
-    if error_text.contains("-2015") || error_text.contains("INVALID_API_KEY") {
-        return format!("Clé API invalide: {}", error_text);
+    if error_lower.contains("-1022") || error_lower.contains("invalid_signature") {
+        return format!("Signature invalide. Vérifiez votre clé secrète API.");
+    }
+    if error_lower.contains("-2015") || error_lower.contains("invalid_api_key") {
+        return format!("Clé API invalide ou expirée. Vérifiez vos identifiants API.");
+    }
+    if error_lower.contains("-2014") || error_lower.contains("missing_api_key") {
+        return format!("Clé API manquante. Configurez vos identifiants API.");
     }
     if status_code == 429 {
-        return format!("Rate limit dépassé. Veuillez patienter avant de réessayer.");
+        return format!("Trop de requêtes. Veuillez patienter quelques instants avant de réessayer.");
     }
     if status_code == 418 {
-        return format!("IP bannie temporairement pour cause de rate limit excessif.");
+        return format!("IP bannie temporairement pour cause de rate limit excessif. Attendez avant de réessayer.");
+    }
+    if status_code == 401 {
+        return format!("Non autorisé. Vérifiez vos clés API.");
+    }
+    if status_code == 403 {
+        return format!("Accès interdit. Vérifiez les permissions de votre clé API.");
+    }
+    if status_code >= 500 {
+        return format!("Erreur serveur Binance. Réessayez dans quelques instants.");
     }
 
-    // Erreur générique
-    format!("Erreur API Binance ({}): {}", status_code, error_text)
+    // Erreur générique avec extraction du message si possible
+    let clean_msg = if error_text.len() > 200 {
+        format!("{}...", &error_text[..200])
+    } else {
+        error_text.to_string()
+    };
+    
+    format!("Erreur API Binance ({}): {}", status_code, clean_msg)
 }
 
 /// Récupère le statut d'un ordre

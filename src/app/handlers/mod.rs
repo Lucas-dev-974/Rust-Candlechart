@@ -14,6 +14,8 @@ mod panels;
 pub mod strategies;
 mod backtest;
 mod assets;
+mod errors;
+mod notifications;
 
 pub use handlers::{handle_chart_message, handle_reset_view, handle_open_chart_context_menu, handle_close_chart_context_menu};
 pub use windows::{
@@ -35,6 +37,8 @@ pub use panels::*;
 pub use strategies::*;
 pub use backtest::*;
 pub use assets::{handle_toggle_asset_selection, handle_select_asset_from_header, handle_asset_series_created};
+pub use errors::*;
+pub use notifications::*;
 
 
 

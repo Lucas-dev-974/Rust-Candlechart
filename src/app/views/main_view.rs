@@ -16,6 +16,8 @@ use super::helpers::corner_settings_button;
 use super::indicators::chart_with_indicators_overlay;
 use super::panels::{view_right_panel, view_bottom_panel, build_indicator_panels, section_context_menu};
 use super::crosshair_overlay::crosshair_overlay;
+use super::error_messages::error_messages_overlay;
+use super::notifications::notifications_overlay;
 
 /// Composant qui regroupe toutes les sections du graphique
 fn view_chart_component(app: &ChartApp) -> Element<'_, Message> {
@@ -376,7 +378,43 @@ pub fn view_main(app: &ChartApp) -> Element<'_, Message> {
         stack![].width(Length::Fill).height(Length::Fill)
     };
     
-    // Layout complet : Header + Zone principale + Panneau du bas + Menus contextuels
+    // Messages d'erreur en overlay en haut (ancien système, conservé pour compatibilité)
+    let error_overlay = container(
+        error_messages_overlay(app)
+    )
+    .width(Length::Fill)
+    .align_x(iced::alignment::Horizontal::Center)
+    .align_y(iced::alignment::Vertical::Top)
+    .padding(iced::Padding {
+        left: 0.0,
+        top: 80.0, // En dessous du header
+        right: 0.0,
+        bottom: 0.0,
+    })
+    .style(|_theme| container::Style {
+        background: None,
+        ..Default::default()
+    });
+
+    // Notifications en overlay en haut (nouveau système)
+    let notifications_overlay_element = container(
+        notifications_overlay(app)
+    )
+    .width(Length::Fill)
+    .align_x(iced::alignment::Horizontal::Right)
+    .align_y(iced::alignment::Vertical::Bottom)
+    .padding(iced::Padding {
+        left: 0.0,
+        top: 0.0,
+        right: 16.0,
+        bottom: 16.0,
+    })
+    .style(|_theme| container::Style {
+        background: None,
+        ..Default::default()
+    });
+
+    // Layout complet : Header + Zone principale + Panneau du bas + Menus contextuels + Erreurs + Notifications
     stack![
         column![
             header,
@@ -386,7 +424,9 @@ pub fn view_main(app: &ChartApp) -> Element<'_, Message> {
         .width(Length::Fill)
         .height(Length::Fill),
         section_context_menu_overlay,
-        chart_context_menu_overlay
+        chart_context_menu_overlay,
+        error_overlay,
+        notifications_overlay_element
     ]
     .width(Length::Fill)
     .height(Length::Fill)
@@ -415,6 +455,26 @@ fn chart_context_menu(app: &ChartApp) -> Element<'_, Message> {
                 .width(Length::Fill)
         );
     }
+    
+    // Boutons de test pour le système de notifications
+    menu_items = menu_items.push(
+        button("⚠️ Tester erreur")
+            .on_press(Message::TestError)
+            .style(view_styles::icon_button_style)
+            .width(Length::Fill)
+    );
+    menu_items = menu_items.push(
+        button("✅ Tester succès")
+            .on_press(Message::TestSuccessNotification)
+            .style(view_styles::icon_button_style)
+            .width(Length::Fill)
+    );
+    menu_items = menu_items.push(
+        button("ℹ️ Tester info")
+            .on_press(Message::TestInfoNotification)
+            .style(view_styles::icon_button_style)
+            .width(Length::Fill)
+    );
     
     menu_items = menu_items.spacing(4).padding(8);
     

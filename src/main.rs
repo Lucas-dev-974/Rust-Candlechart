@@ -8,6 +8,11 @@ mod app;
 use app::ChartApp;
 
 fn main() -> iced::Result {
+    // Initialiser le logger
+    env_logger::Builder::from_default_env()
+        .filter_level(log::LevelFilter::Info)
+        .init();
+    
     iced::daemon(ChartApp::new, ChartApp::update, ChartApp::view)
         .title(ChartApp::title)
         .theme(ChartApp::theme)

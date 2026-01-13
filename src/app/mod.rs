@@ -19,7 +19,7 @@ pub mod handlers;
 pub mod utils;
 pub mod strategies;
 pub mod trading;
+pub mod error_handling;
 
-pub use messages::Message;
 pub use app_state::ChartApp;
 

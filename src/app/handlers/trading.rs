@@ -500,21 +500,21 @@ pub fn handle_buy_order_placed(
 ) -> Task<crate::app::messages::Message> {
     match result {
         Ok(order_response) => {
-            println!("✅ Ordre d'achat placé avec succès!");
-            println!("   Order ID: {}", order_response.order_id);
-            println!("   Symbole: {}", order_response.symbol);
-            println!("   Type: {} {}", order_response.order_type, order_response.side);
-            println!("   Quantité: {}", order_response.quantity);
-            if let Some(ref price) = order_response.price {
-                println!("   Prix: {}", price);
-            }
-            println!("   Statut: {}", order_response.status);
+            log::info!("✅ Ordre d'achat placé avec succès! Order ID: {}", order_response.order_id);
             
             // Mettre à jour les informations du compte depuis Binance
             return crate::app::realtime::fetch_account_info(app);
         }
         Err(e) => {
-            println!("❌ Erreur lors du placement de l'ordre d'achat: {}", e);
+            let error = crate::app::error_handling::AppError::new(
+                format!("Erreur lors du placement de l'ordre d'achat"),
+                e.clone(),
+                crate::app::error_handling::ErrorType::Api,
+            )
+            .with_source("Trading API".to_string());
+            
+            error.log();
+            app.ui.add_error(error);
         }
     }
     Task::none()
@@ -527,21 +527,21 @@ pub fn handle_sell_order_placed(
 ) -> Task<crate::app::messages::Message> {
     match result {
         Ok(order_response) => {
-            println!("✅ Ordre de vente placé avec succès!");
-            println!("   Order ID: {}", order_response.order_id);
-            println!("   Symbole: {}", order_response.symbol);
-            println!("   Type: {} {}", order_response.order_type, order_response.side);
-            println!("   Quantité: {}", order_response.quantity);
-            if let Some(ref price) = order_response.price {
-                println!("   Prix: {}", price);
-            }
-            println!("   Statut: {}", order_response.status);
+            log::info!("✅ Ordre de vente placé avec succès! Order ID: {}", order_response.order_id);
             
             // Mettre à jour les informations du compte depuis Binance
             return crate::app::realtime::fetch_account_info(app);
         }
         Err(e) => {
-            println!("❌ Erreur lors du placement de l'ordre de vente: {}", e);
+            let error = crate::app::error_handling::AppError::new(
+                format!("Erreur lors du placement de l'ordre de vente"),
+                e.clone(),
+                crate::app::error_handling::ErrorType::Api,
+            )
+            .with_source("Trading API".to_string());
+            
+            error.log();
+            app.ui.add_error(error);
         }
     }
     Task::none()
