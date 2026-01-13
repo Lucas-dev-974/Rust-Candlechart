@@ -17,6 +17,9 @@ pub struct UiState {
     /// État du menu contextuel des sections (section, position globale du curseur)
     pub section_context_menu: Option<(BottomPanelSection, iced::Point)>,
     
+    /// État du menu contextuel du graphique (position globale du curseur)
+    pub chart_context_menu: Option<iced::Point>,
+    
     /// Indique si l'onglet d'indicateurs est ouvert
     pub indicators_panel_open: bool,
     
@@ -30,6 +33,7 @@ impl Default for UiState {
             panels: PanelsState::new(),
             bottom_panel_sections: BottomPanelSectionsState::new(),
             section_context_menu: None,
+            chart_context_menu: None,
             indicators_panel_open: false,
             backtest_state: BacktestState::new(),
         }

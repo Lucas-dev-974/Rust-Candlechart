@@ -88,12 +88,19 @@ pub fn calculate_recent_gap_threshold(interval_seconds: i64) -> i64 {
 /// 
 /// # Returns
 /// Le timestamp Unix actuel (secondes depuis l'epoch)
+/// 
+/// # Panics
+/// Ne devrait jamais paniquer en conditions normales. En cas d'erreur système
+/// (horloge réglée avant l'epoch Unix), retourne 0 comme valeur de repli.
 #[inline]
 pub fn current_timestamp() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .expect("Erreur horloge système")
-        .as_secs() as i64
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or_else(|e| {
+            eprintln!("⚠️ Erreur horloge système: {}. Utilisation du timestamp 0.", e);
+            0
+        })
 }
 
 #[cfg(test)]

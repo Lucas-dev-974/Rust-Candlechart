@@ -15,7 +15,7 @@ pub mod strategies;
 mod backtest;
 mod assets;
 
-pub use handlers::handle_chart_message;
+pub use handlers::{handle_chart_message, handle_reset_view, handle_open_chart_context_menu, handle_close_chart_context_menu};
 pub use windows::{
     handle_open_settings,
     handle_open_downloads,

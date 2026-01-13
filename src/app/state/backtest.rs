@@ -101,11 +101,6 @@ impl BacktestState {
         self.current_index = index;
     }
     
-    /// Met à jour la vitesse de lecture
-    pub fn set_speed(&mut self, speed_ms: u64) {
-        self.playback_speed_ms = speed_ms;
-    }
-    
     /// Active ou désactive le mode backtest
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;

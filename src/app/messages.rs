@@ -15,6 +15,14 @@ use crate::finance_chart::{
 pub enum Message {
     // === Messages du graphique ===
     Chart(ChartMessage),
+    /// Réinitialiser le zoom de la vue du graphique
+    ResetView,
+    /// Ouvrir le menu contextuel du graphique (position du curseur)
+    /// Note: Ce message est utilisé indirectement via le clic droit sur le graphique
+    #[allow(dead_code)]
+    OpenChartContextMenu(iced::Point),
+    /// Fermer le menu contextuel du graphique
+    CloseChartContextMenu,
     
     // === Messages des axes ===
     YAxis(YAxisMessage),
@@ -138,7 +146,6 @@ pub enum Message {
     // === Messages de test de connexion au provider ===
     TestProviderConnection,
     ProviderConnectionTestComplete(Result<(), String>),
-    FetchAccountInfo,
     AccountInfoFetched(Result<Vec<crate::finance_chart::providers::binance::BinanceAccountBalance>, String>),
     
     // === Messages de focus des panneaux ===
@@ -158,6 +165,10 @@ pub enum Message {
     ToggleTPSLEnabled,
     PlaceBuyOrder,
     PlaceSellOrder,
+    /// Résultat du placement d'un ordre d'achat
+    BuyOrderPlaced(Result<crate::app::trading::api::OrderResponse, String>),
+    /// Résultat du placement d'un ordre de vente
+    SellOrderPlaced(Result<crate::app::trading::api::OrderResponse, String>),
     
     // === Messages des stratégies de trading automatisées ===
     RegisterRSIStrategy,
@@ -179,6 +190,13 @@ pub enum Message {
     /// Sélectionner une stratégie pour le backtest (None = aucune stratégie)
     SelectBacktestStrategy(Option<String>),
     /// Sélectionner une date de départ pour le backtest (timestamp)
+    ///
+    /// Note: Le linter signale que ce variant n'est jamais construit directement. En réalité,
+    /// `ChartMessage::SelectBacktestDate` est géré directement dans handlers.rs (ligne 193)
+    /// sans conversion vers ce message. Ce variant est conservé pour compatibilité et pour
+    /// permettre un usage futur depuis l'UI. Le handler `handle_select_backtest_date` existe
+    /// et est prêt à être utilisé si nécessaire.
+    #[allow(dead_code)]
     SelectBacktestDate(i64),
     /// Démarrer la lecture du backtest
     StartBacktest,

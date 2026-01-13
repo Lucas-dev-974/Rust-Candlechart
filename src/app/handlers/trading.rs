@@ -1,8 +1,10 @@
 //! Handlers pour la gestion du trading
 
 use iced::Task;
+use std::sync::Arc;
 use crate::app::app_state::ChartApp;
 use crate::app::data::OrderType;
+use crate::app::trading::api::{validate_order, place_market_buy_order, place_market_sell_order, place_limit_buy_order, place_limit_sell_order};
 
 /// Gère la mise à jour de la quantité d'ordre
 pub fn handle_update_order_quantity(app: &mut ChartApp, quantity: String) -> Task<crate::app::messages::Message> {
@@ -175,8 +177,31 @@ pub fn handle_place_buy_order(app: &mut ChartApp) -> Task<crate::app::messages::
                             // Mettre à jour les informations du compte
                             app.update_account_info();
                         } else {
-                            // TODO: Placer un vrai ordre via l'API du provider
-                            println!("  ⚠️ Mode réel: intégration API à implémenter");
+                            // Mode réel: placer un vrai ordre MARKET BUY via l'API du provider
+                            let provider = Arc::clone(&app.binance_provider);
+                            let symbol_clone = symbol.clone();
+                            let quantity_clone = quantity;
+                            
+                            // Valider l'ordre avant de le placer
+                            if let Err(e) = validate_order(
+                                &symbol_clone,
+                                quantity_clone,
+                                Some(price),
+                                "MARKET",
+                                app.account_info.free_margin,
+                            ) {
+                                println!("  ❌ Validation échouée: {}", e);
+                                return Task::none();
+                            }
+                            
+                            return Task::perform(
+                                async move {
+                                    place_market_buy_order(&provider, &symbol_clone, quantity_clone)
+                                        .await
+                                        .map_err(|e| e.to_string())
+                                },
+                                crate::app::messages::Message::BuyOrderPlaced,
+                            );
                         }
                     }
                     OrderType::Limit => {
@@ -211,8 +236,32 @@ pub fn handle_place_buy_order(app: &mut ChartApp) -> Task<crate::app::messages::
                             // Mettre à jour les informations du compte
                             app.update_account_info();
                         } else {
-                            // TODO: Placer un vrai ordre via l'API du provider
-                            println!("  ⚠️ Mode réel: intégration API à implémenter");
+                            // Mode réel: placer un vrai ordre LIMIT BUY via l'API du provider
+                            let provider = Arc::clone(&app.binance_provider);
+                            let symbol_clone = symbol.clone();
+                            let quantity_clone = quantity;
+                            let price_clone = price;
+                            
+                            // Valider l'ordre avant de le placer
+                            if let Err(e) = validate_order(
+                                &symbol_clone,
+                                quantity_clone,
+                                Some(price_clone),
+                                "LIMIT",
+                                app.account_info.free_margin,
+                            ) {
+                                println!("  ❌ Validation échouée: {}", e);
+                                return Task::none();
+                            }
+                            
+                            return Task::perform(
+                                async move {
+                                    place_limit_buy_order(&provider, &symbol_clone, quantity_clone, price_clone, Some("GTC"))
+                                        .await
+                                        .map_err(|e| e.to_string())
+                                },
+                                crate::app::messages::Message::BuyOrderPlaced,
+                            );
                         }
                     }
                 }
@@ -355,8 +404,28 @@ pub fn handle_place_sell_order(app: &mut ChartApp) -> Task<crate::app::messages:
                         // Mettre à jour les informations du compte
                         app.update_account_info();
                     } else {
-                        // TODO: Placer un vrai ordre via l'API du provider
-                        println!("  ⚠️ Mode réel: intégration API à implémenter");
+                        // Mode réel: placer un vrai ordre MARKET SELL via l'API du provider
+                        let provider = Arc::clone(&app.binance_provider);
+                        let symbol_clone = symbol.clone();
+                        let quantity_clone = quantity;
+                        
+                        // Valider l'ordre avant de le placer
+                        // Pour les ordres SELL, on vérifie qu'on a assez de l'asset de base
+                        // (cette validation simple vérifie juste le format, la validation réelle
+                        // se fera côté Binance qui vérifiera qu'on a assez de l'asset)
+                        if quantity_clone <= 0.0 {
+                            println!("  ❌ Quantité invalide: {}", quantity_clone);
+                            return Task::none();
+                        }
+                        
+                        return Task::perform(
+                            async move {
+                                place_market_sell_order(&provider, &symbol_clone, quantity_clone)
+                                    .await
+                                    .map_err(|e| e.to_string())
+                            },
+                            crate::app::messages::Message::SellOrderPlaced,
+                        );
                     }
                 }
                 OrderType::Limit => {
@@ -388,8 +457,30 @@ pub fn handle_place_sell_order(app: &mut ChartApp) -> Task<crate::app::messages:
                         // Mettre à jour les informations du compte
                         app.update_account_info();
                     } else {
-                        // TODO: Placer un vrai ordre via l'API du provider
-                        println!("  ⚠️ Mode réel: intégration API à implémenter");
+                        // Mode réel: placer un vrai ordre LIMIT SELL via l'API du provider
+                        let provider = Arc::clone(&app.binance_provider);
+                        let symbol_clone = symbol.clone();
+                        let quantity_clone = quantity;
+                        let price_clone = price;
+                        
+                        // Valider l'ordre avant de le placer
+                        if quantity_clone <= 0.0 {
+                            println!("  ❌ Quantité invalide: {}", quantity_clone);
+                            return Task::none();
+                        }
+                        if price_clone <= 0.0 {
+                            println!("  ❌ Prix invalide: {}", price_clone);
+                            return Task::none();
+                        }
+                        
+                        return Task::perform(
+                            async move {
+                                place_limit_sell_order(&provider, &symbol_clone, quantity_clone, price_clone, Some("GTC"))
+                                    .await
+                                    .map_err(|e| e.to_string())
+                            },
+                            crate::app::messages::Message::SellOrderPlaced,
+                        );
                     }
                 }
             }
@@ -398,6 +489,60 @@ pub fn handle_place_sell_order(app: &mut ChartApp) -> Task<crate::app::messages:
         }
     } else {
         println!("❌ Quantité invalide: {}", app.trading_state.order_quantity);
+    }
+    Task::none()
+}
+
+/// Gère le résultat du placement d'un ordre d'achat
+pub fn handle_buy_order_placed(
+    app: &mut ChartApp,
+    result: Result<crate::app::trading::api::OrderResponse, String>,
+) -> Task<crate::app::messages::Message> {
+    match result {
+        Ok(order_response) => {
+            println!("✅ Ordre d'achat placé avec succès!");
+            println!("   Order ID: {}", order_response.order_id);
+            println!("   Symbole: {}", order_response.symbol);
+            println!("   Type: {} {}", order_response.order_type, order_response.side);
+            println!("   Quantité: {}", order_response.quantity);
+            if let Some(ref price) = order_response.price {
+                println!("   Prix: {}", price);
+            }
+            println!("   Statut: {}", order_response.status);
+            
+            // Mettre à jour les informations du compte depuis Binance
+            return crate::app::realtime::fetch_account_info(app);
+        }
+        Err(e) => {
+            println!("❌ Erreur lors du placement de l'ordre d'achat: {}", e);
+        }
+    }
+    Task::none()
+}
+
+/// Gère le résultat du placement d'un ordre de vente
+pub fn handle_sell_order_placed(
+    app: &mut ChartApp,
+    result: Result<crate::app::trading::api::OrderResponse, String>,
+) -> Task<crate::app::messages::Message> {
+    match result {
+        Ok(order_response) => {
+            println!("✅ Ordre de vente placé avec succès!");
+            println!("   Order ID: {}", order_response.order_id);
+            println!("   Symbole: {}", order_response.symbol);
+            println!("   Type: {} {}", order_response.order_type, order_response.side);
+            println!("   Quantité: {}", order_response.quantity);
+            if let Some(ref price) = order_response.price {
+                println!("   Prix: {}", price);
+            }
+            println!("   Statut: {}", order_response.status);
+            
+            // Mettre à jour les informations du compte depuis Binance
+            return crate::app::realtime::fetch_account_info(app);
+        }
+        Err(e) => {
+            println!("❌ Erreur lors du placement de l'ordre de vente: {}", e);
+        }
     }
     Task::none()
 }

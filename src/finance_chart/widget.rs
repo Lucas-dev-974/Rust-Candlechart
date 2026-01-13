@@ -597,6 +597,16 @@ impl<'a> Program<ChartMessage> for ChartProgram<'a> {
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
                 return self.handle_mouse_release(cursor.position_in(bounds));
             }
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) => {
+                if cursor.position_in(bounds).is_some() {
+                    // Utiliser la position absolue pour le menu contextuel
+                    if let Some(absolute_position) = cursor.position() {
+                        return Some(CanvasAction::publish(ChartMessage::RightClick { 
+                            position: absolute_position 
+                        }));
+                    }
+                }
+            }
             Event::Mouse(mouse::Event::CursorMoved { position }) => {
                 let position = Point::new(position.x - bounds.x, position.y - bounds.y);
                 // Utiliser la position absolue pour cohérence avec les indicateurs
@@ -886,17 +896,37 @@ impl<'a> ChartProgram<'a> {
             return None;
         }
         
-        let zoom_factor = match delta {
-            mouse::ScrollDelta::Lines { y, .. } => if y > 0.0 { 0.9 } else { 1.1 },
-            mouse::ScrollDelta::Pixels { y, .. } => if y > 0.0 { 0.95 } else { 1.05 },
+        // Facteurs de zoom : scroll vers le haut (y < 0) = zoom in (factor < 1.0), scroll vers le bas (y > 0) = zoom out (factor > 1.0)
+        // Pour le zoom vertical, utiliser des facteurs plus sensibles pour un zoom plus réactif
+        // Note: Le zoom vertical est inversé (scroll vers le haut = zoom out, scroll vers le bas = zoom in)
+        let (zoom_factor_horizontal, zoom_factor_vertical) = match delta {
+            mouse::ScrollDelta::Lines { y, .. } => {
+                if y > 0.0 {
+                    (0.9, 0.95)  // Scroll vers le bas: zoom in horizontal, zoom in vertical (inversé)
+                } else {
+                    (1.1, 1.05)  // Scroll vers le haut: zoom out horizontal, zoom out vertical (inversé)
+                }
+            },
+            mouse::ScrollDelta::Pixels { y, .. } => {
+                if y > 0.0 {
+                    (0.95, 0.98)  // Scroll vers le bas: zoom in horizontal, zoom in vertical (inversé)
+                } else {
+                    (1.05, 1.02)  // Scroll vers le haut: zoom out horizontal, zoom out vertical (inversé)
+                }
+            },
         };
         
         if widget_state.ctrl_pressed {
+            // Pour zoom both, utiliser le facteur horizontal (comportement standard)
+            let zoom_factor = match delta {
+                mouse::ScrollDelta::Lines { y, .. } => if y > 0.0 { 0.9 } else { 1.1 },
+                mouse::ScrollDelta::Pixels { y, .. } => if y > 0.0 { 0.95 } else { 1.05 },
+            };
             Some(CanvasAction::publish(ChartMessage::ZoomBoth { factor: zoom_factor }))
         } else if widget_state.alt_pressed {
-            Some(CanvasAction::publish(ChartMessage::ZoomVertical { factor: zoom_factor }))
+            Some(CanvasAction::publish(ChartMessage::ZoomVertical { factor: zoom_factor_vertical }))
         } else {
-            Some(CanvasAction::publish(ChartMessage::ZoomHorizontal { factor: zoom_factor }))
+            Some(CanvasAction::publish(ChartMessage::ZoomHorizontal { factor: zoom_factor_horizontal }))
         }
     }
 }

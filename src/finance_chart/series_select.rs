@@ -60,34 +60,29 @@ pub fn series_select_box<'a>(
         });
 
     // Créer une correspondance intervalle -> nom de série
-    // Prioriser les séries avec le symbole préféré (mémorisé ou actif), sinon prendre la première trouvée
+    // IMPORTANT: Toujours prioriser le symbole mémorisé pour garantir qu'on reste sur le même actif
+    // lors du changement de timeframe
     let interval_to_series: Vec<(String, String)> = intervals
         .iter()
         .map(|interval| {
-            let series_name = series_manager
-                .all_series()
-                .find(|series| {
-                    series.interval == *interval
-                        && preferred_symbol.as_ref().map_or(true, |sym| series.symbol == *sym)
-                })
-                .or_else(|| {
-                    series_manager
-                        .all_series()
-                        .find(|series| series.interval == *interval)
-                })
-                .map(|series| series.full_name())
-                .unwrap_or_else(|| {
-                    // Fallback: construire le nom avec le symbole préféré ou le premier symbole trouvé
-                    if let Some(ref symbol) = preferred_symbol {
+            let series_name = if let Some(ref symbol) = preferred_symbol {
+                // Chercher d'abord une série avec le symbole mémorisé et cet intervalle
+                series_manager
+                    .all_series()
+                    .find(|series| series.interval == *interval && series.symbol == *symbol)
+                    .map(|series| series.full_name())
+                    .unwrap_or_else(|| {
+                        // Si la série n'existe pas, construire le nom pour qu'elle soit créée automatiquement
                         format!("{}_{}", symbol, interval)
-                    } else {
-                        series_manager
-                            .all_series()
-                            .find(|series| series.interval == *interval)
-                            .map(|series| series.full_name())
-                            .unwrap_or_default()
-                    }
-                });
+                    })
+            } else {
+                // Pas de symbole mémorisé, utiliser la série active ou la première trouvée
+                series_manager
+                    .all_series()
+                    .find(|series| series.interval == *interval)
+                    .map(|series| series.full_name())
+                    .unwrap_or_default()
+            };
             (interval.clone(), series_name)
         })
         .collect();

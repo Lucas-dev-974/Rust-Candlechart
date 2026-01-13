@@ -79,12 +79,22 @@ pub enum ChartMessage {
     /// Mise à jour de la position de la souris
     MouseMoved { position: Point },
     
+    // === Clic droit ===
+    /// Clic droit sur le graphique (pour menu contextuel)
+    RightClick { position: Point },
+    
     // === Resize ===
     /// Mise à jour de la taille du viewport (et des bounds pour convertir positions absolues en relatives)
     Resize { width: f32, height: f32, x: f32, y: f32 },
     
     // === Backtest ===
     /// Sélectionner une date de départ pour le backtest (clic sur le graphique)
+    ///
+    /// Note: Le linter signale que ce variant n'est jamais construit directement. En réalité,
+    /// ce message est géré directement dans handlers.rs (ligne 193) sans conversion vers
+    /// `Message::SelectBacktestDate`. C'est un faux positif du linter - le code fonctionne
+    /// correctement, le message est bien utilisé lors d'un clic sur le graphique.
+    #[allow(dead_code)]
     SelectBacktestDate { time: i64 },
 }
 

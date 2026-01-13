@@ -14,7 +14,59 @@ pub fn handle_select_series_by_name(app: &mut ChartApp, series_name: String) -> 
         .find(|s| s.full_name() == series_name)
         .map(|s| s.id.clone());
     
+    // Si la série n'existe pas, vérifier si on doit la créer
+    // Cela peut arriver si on change de timeframe pour un symbole qui n'a pas encore cette série
+    if series_id_opt.is_none() {
+        // Parser le nom de série pour extraire le symbole et l'intervalle
+        // Format attendu: "SYMBOL_INTERVAL" (ex: "BTCUSDT_1h")
+        if let Some(underscore_pos) = series_name.rfind('_') {
+            let symbol = series_name[..underscore_pos].to_string();
+            let interval = series_name[underscore_pos + 1..].to_string();
+            
+            // Vérifier si le symbole correspond au symbole mémorisé
+            if app.selected_asset_symbol.as_ref().map_or(false, |s| *s == symbol) {
+                println!("📥 Série {} n'existe pas, création automatique...", series_name);
+                use std::sync::Arc;
+                use iced::Task;
+                use crate::app::data::data_loading::download_series_for_symbol_and_interval;
+                
+                let provider = Arc::clone(&app.binance_provider);
+                let symbol_clone = symbol.clone();
+                let interval_clone = interval.clone();
+                let symbol_for_message = symbol.clone();
+                let interval_for_message = interval.clone();
+                
+                return Task::perform(
+                    async move {
+                        download_series_for_symbol_and_interval(provider, &symbol_clone, &interval_clone).await
+                    },
+                    move |result| {
+                        crate::app::messages::Message::AssetSeriesCreated(symbol_for_message.clone(), interval_for_message.clone(), result)
+                    }
+                );
+            } else {
+                println!("⚠️ Série {} demandée mais symbole {} ne correspond pas au symbole mémorisé {:?}", 
+                    series_name, symbol, app.selected_asset_symbol);
+                // Ne pas créer la série si le symbole ne correspond pas
+                return Task::none();
+            }
+        }
+    }
+    
     if let Some(series_id) = series_id_opt {
+        // Vérifier que la série correspond au symbole mémorisé (si un symbole est mémorisé)
+        // Cela garantit qu'on ne change pas d'actif lors du changement de timeframe
+        if let Some(series) = app.chart_state.series_manager.get_series(&series_id) {
+            if let Some(ref memorized_symbol) = app.selected_asset_symbol {
+                if series.symbol != *memorized_symbol {
+                    println!("⚠️ Série {} demandée mais symbole {} ne correspond pas au symbole mémorisé {}", 
+                        series_name, series.symbol, memorized_symbol);
+                    println!("   Ignorant la sélection pour préserver l'actif sélectionné.");
+                    return Task::none();
+                }
+            }
+        }
+        
         // Activer uniquement cette série (désactive toutes les autres)
         app.chart_state.series_manager.activate_only_series(series_id.clone());
         // Mettre à jour le viewport après activation

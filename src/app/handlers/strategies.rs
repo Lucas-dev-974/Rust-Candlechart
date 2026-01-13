@@ -28,7 +28,15 @@ pub fn execute_strategies(app: &mut ChartApp) -> Task<crate::app::messages::Mess
         return Task::none();
     }
     
-    let current_candle = candles.last().unwrap().clone();
+    // Sécurité supplémentaire : même si on a vérifié que candles n'est pas vide,
+    // utiliser if let pour éviter un panic en cas de modification concurrente
+    let current_candle = match candles.last() {
+        Some(candle) => candle.clone(),
+        None => {
+            eprintln!("⚠️ Erreur: candles est vide après vérification");
+            return Task::none();
+        }
+    };
     let current_price = current_candle.close;
     let current_volume = current_candle.volume;
     

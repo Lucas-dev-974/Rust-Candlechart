@@ -203,13 +203,47 @@ impl Viewport {
     pub fn zoom_vertical(&mut self, factor: f64) {
         let (min_price, max_price) = self.price_scale.price_range();
         let price_range = max_price - min_price;
+        
+        // Éviter les divisions par zéro et les plages invalides
+        if price_range <= 0.0 || !price_range.is_finite() || !min_price.is_finite() || !max_price.is_finite() {
+            return;
+        }
+        
+        // Calculer le centre de la plage actuelle
         let center_price = min_price + price_range / 2.0;
         
+        // Calculer la nouvelle plage en multipliant par le facteur
         let new_price_range = price_range * factor;
-        let new_price_range = new_price_range.clamp(MIN_PRICE_RANGE, MAX_PRICE_RANGE);
         
-        let new_min = center_price - new_price_range / 2.0;
-        let new_max = center_price + new_price_range / 2.0;
+        // Vérifier que la nouvelle plage est valide (positive et finie)
+        if new_price_range <= 0.0 || !new_price_range.is_finite() {
+            return;
+        }
+        
+        // Utiliser des limites relatives plutôt qu'absolues pour éviter les problèmes
+        // Limiter à 0.1% de la plage actuelle minimum (pour zoom in)
+        // et à 1000x la plage actuelle maximum (pour zoom out)
+        let min_allowed_range = price_range * 0.001;  // 0.1% de la plage actuelle
+        let max_allowed_range = price_range * 1000.0; // 1000x la plage actuelle
+        
+        // Appliquer les limites relatives
+        let clamped_range = new_price_range.clamp(min_allowed_range, max_allowed_range);
+        
+        // Si le clamp a modifié la valeur, cela signifie qu'on a atteint une limite
+        // Dans ce cas, ne pas appliquer le zoom pour éviter les sauts
+        if (clamped_range - new_price_range).abs() > 0.0001 {
+            return;
+        }
+        
+        // Calculer les nouvelles limites centrées sur le centre actuel
+        let new_min = center_price - clamped_range / 2.0;
+        let new_max = center_price + clamped_range / 2.0;
+        
+        // Vérifications finales
+        if !new_min.is_finite() || !new_max.is_finite() || new_min >= new_max {
+            return;
+        }
+        
         self.price_scale.set_price_range(new_min, new_max);
     }
 

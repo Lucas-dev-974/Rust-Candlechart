@@ -18,6 +18,7 @@ pub mod ui;
 pub mod handlers;
 pub mod utils;
 pub mod strategies;
+pub mod trading;
 
 pub use messages::Message;
 pub use app_state::ChartApp;

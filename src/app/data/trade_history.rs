@@ -147,20 +147,6 @@ impl TradeHistory {
         state.save_to_file(path)
     }
     
-    /// Ouvre une position (achat) avec TP et SL
-    pub fn open_buy_position_with_tp_sl(
-        &mut self,
-        symbol: String,
-        quantity: f64,
-        price: f64,
-        take_profit: Option<f64>,
-        stop_loss: Option<f64>,
-    ) -> Trade {
-        self.open_buy_position_with_tp_sl_and_strategy(
-            symbol, quantity, price, take_profit, stop_loss, None, None, None
-        )
-    }
-    
     /// Ouvre une position (achat) avec TP, SL et informations de stratégie
     pub fn open_buy_position_with_tp_sl_and_strategy(
         &mut self,
@@ -176,8 +162,11 @@ impl TradeHistory {
         let timestamp = timestamp.unwrap_or_else(|| {
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs() as i64
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or_else(|e| {
+                    eprintln!("⚠️ Erreur horloge système lors de l'ouverture d'une position: {}. Utilisation du timestamp 0.", e);
+                    0
+                })
         });
         
         let position = Position {
@@ -209,11 +198,6 @@ impl TradeHistory {
         self.trades.push(trade.clone());
         
         trade
-    }
-    
-    /// Ferme une position (vente)
-    pub fn close_position(&mut self, symbol: &str, quantity: f64, price: f64) -> Option<Trade> {
-        self.close_position_with_strategy(symbol, quantity, price, None, None, None)
     }
     
     /// Ferme une position (vente) avec informations de stratégie
@@ -275,20 +259,6 @@ impl TradeHistory {
         }
     }
     
-    /// Ouvre une position de vente (short) avec TP et SL
-    pub fn open_sell_position_with_tp_sl(
-        &mut self,
-        symbol: String,
-        quantity: f64,
-        price: f64,
-        take_profit: Option<f64>,
-        stop_loss: Option<f64>,
-    ) -> Trade {
-        self.open_sell_position_with_tp_sl_and_strategy(
-            symbol, quantity, price, take_profit, stop_loss, None, None, None
-        )
-    }
-    
     /// Ouvre une position de vente (short) avec TP, SL et informations de stratégie
     pub fn open_sell_position_with_tp_sl_and_strategy(
         &mut self,
@@ -304,8 +274,11 @@ impl TradeHistory {
         let timestamp = timestamp.unwrap_or_else(|| {
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs() as i64
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or_else(|e| {
+                    eprintln!("⚠️ Erreur horloge système lors de l'ouverture d'une position: {}. Utilisation du timestamp 0.", e);
+                    0
+                })
         });
         
         let position = Position {
@@ -444,8 +417,11 @@ impl TradeHistory {
     ) -> PendingOrder {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or_else(|e| {
+                eprintln!("⚠️ Erreur horloge système lors de la création d'un ordre en attente: {}. Utilisation du timestamp 0.", e);
+                0
+            });
         
         let order = PendingOrder {
             id: self.next_order_id,

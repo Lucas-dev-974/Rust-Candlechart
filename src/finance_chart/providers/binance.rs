@@ -61,14 +61,14 @@ const DEFAULT_TIMEOUT_SECS: u64 = 10;
 #[derive(Clone)]
 pub struct BinanceProvider {
     /// Client HTTP pour les requêtes
-    client: reqwest::Client,
+    pub(crate) client: reqwest::Client,
     /// URL de base de l'API
-    base_url: String,
+    pub(crate) base_url: String,
     /// Token API optionnel pour l'authentification
     #[allow(dead_code)]
-    api_token: Option<String>,
+    pub(crate) api_token: Option<String>,
     /// Clé secrète API pour la signature HMAC
-    api_secret: Option<String>,
+    pub(crate) api_secret: Option<String>,
 }
 
 impl BinanceProvider {
@@ -125,7 +125,7 @@ impl BinanceProvider {
     }
     
     /// Génère une signature HMAC SHA256 pour une requête Binance
-    fn generate_signature(&self, query_string: &str) -> Result<String, ProviderError> {
+    pub fn generate_signature(&self, query_string: &str) -> Result<String, ProviderError> {
         let secret = self.api_secret.as_ref()
             .ok_or_else(|| ProviderError::Api {
                 status: None,

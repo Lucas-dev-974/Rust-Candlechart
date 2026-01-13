@@ -181,6 +181,13 @@ pub fn handle_chart_message(app: &mut ChartApp, msg: ChartMessage) {
             app.chart_state.interaction.mouse_position = Some(position);
         }
         
+        // === Clic droit ===
+        ChartMessage::RightClick { position } => {
+            // Stocker la position pour ouvrir le menu contextuel
+            // Le message OpenChartContextMenu sera émis depuis app_state.rs
+            app.ui.chart_context_menu = Some(position);
+        }
+        
         // === Resize ===
         ChartMessage::Resize { width, height, x, y } => {
             app.chart_state.resize(width, height);
@@ -188,6 +195,10 @@ pub fn handle_chart_message(app: &mut ChartApp, msg: ChartMessage) {
         }
         
         // === Backtest ===
+        // Note: Ce message est géré directement ici sans conversion vers Message::SelectBacktestDate.
+        // C'est pourquoi le linter signale que Message::SelectBacktestDate n'est jamais construit.
+        // Le handler handle_select_backtest_date existe dans backtest.rs mais n'est pas utilisé
+        // actuellement car le traitement se fait directement ici.
         ChartMessage::SelectBacktestDate { time } => {
             // Vérifier si la section Backtest est active et si le backtest est activé
             if app.ui.bottom_panel_sections.active_bottom_section == BottomPanelSection::Backtest
@@ -277,4 +288,22 @@ pub fn delete_selected(app: &mut ChartApp) {
             app.tools_state.hline_editing.deselect();
         }
     }
+}
+
+/// Réinitialise le zoom de la vue du graphique
+pub fn handle_reset_view(app: &mut ChartApp) -> iced::Task<crate::app::messages::Message> {
+    app.chart_state.update_viewport_from_series();
+    iced::Task::none()
+}
+
+/// Ouvre le menu contextuel du graphique
+pub fn handle_open_chart_context_menu(app: &mut ChartApp, position: iced::Point) -> iced::Task<crate::app::messages::Message> {
+    app.ui.chart_context_menu = Some(position);
+    iced::Task::none()
+}
+
+/// Ferme le menu contextuel du graphique
+pub fn handle_close_chart_context_menu(app: &mut ChartApp) -> iced::Task<crate::app::messages::Message> {
+    app.ui.chart_context_menu = None;
+    iced::Task::none()
 }

@@ -16,7 +16,6 @@ use super::helpers::corner_settings_button;
 use super::indicators::chart_with_indicators_overlay;
 use super::panels::{view_right_panel, view_bottom_panel, build_indicator_panels, section_context_menu};
 use super::crosshair_overlay::crosshair_overlay;
-use super::backtest_overlay;
 
 /// Composant qui regroupe toutes les sections du graphique
 fn view_chart_component(app: &ChartApp) -> Element<'_, Message> {
@@ -307,8 +306,8 @@ pub fn view_main(app: &ChartApp) -> Element<'_, Message> {
             .height(Length::Fill)
     };
 
-    // Menu contextuel en overlay positionné à la position du clic
-    let context_menu_overlay = if let Some((_, position)) = &app.ui.section_context_menu {
+    // Menu contextuel des sections en overlay positionné à la position du clic
+    let section_context_menu_overlay = if let Some((_, position)) = &app.ui.section_context_menu {
         stack![
             // Overlay sombre pour fermer le menu en cliquant ailleurs
             mouse_area(
@@ -342,7 +341,42 @@ pub fn view_main(app: &ChartApp) -> Element<'_, Message> {
         stack![].width(Length::Fill).height(Length::Fill)
     };
     
-    // Layout complet : Header + Zone principale + Panneau du bas + Menu contextuel
+    // Menu contextuel du graphique en overlay positionné à la position du clic
+    let chart_context_menu_overlay = if let Some(position) = &app.ui.chart_context_menu {
+        stack![
+            // Overlay sombre pour fermer le menu en cliquant ailleurs
+            mouse_area(
+                container(Space::new())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+            )
+            .on_press(Message::CloseChartContextMenu),
+            // Menu contextuel positionné à la position du clic
+            container(
+                chart_context_menu()
+            )
+            .style(|_theme| container::Style {
+                background: None,
+                ..Default::default()
+            })
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(iced::alignment::Horizontal::Left)
+            .align_y(iced::alignment::Vertical::Top)
+            .padding(iced::Padding {
+                left: position.x,
+                top: position.y,
+                right: 0.0,
+                bottom: 0.0,
+            })
+        ]
+        .width(Length::Fill)
+        .height(Length::Fill)
+    } else {
+        stack![].width(Length::Fill).height(Length::Fill)
+    };
+    
+    // Layout complet : Header + Zone principale + Panneau du bas + Menus contextuels
     stack![
         column![
             header,
@@ -351,11 +385,41 @@ pub fn view_main(app: &ChartApp) -> Element<'_, Message> {
         ]
         .width(Length::Fill)
         .height(Length::Fill),
-        context_menu_overlay
+        section_context_menu_overlay,
+        chart_context_menu_overlay
     ]
     .width(Length::Fill)
     .height(Length::Fill)
     .into()
+}
+
+/// Menu contextuel du graphique principal
+fn chart_context_menu() -> Element<'static, Message> {
+    use iced::widget::{button, column, container};
+    use iced::{Length, Color};
+    use crate::app::view_styles;
+    
+    let menu_items = column![
+        button("🔄 Reset View")
+            .on_press(Message::ResetView)
+            .style(view_styles::icon_button_style)
+            .width(Length::Fill),
+    ]
+    .spacing(4)
+    .padding(8);
+    
+    container(menu_items)
+        .style(|_theme| container::Style {
+            background: Some(iced::Background::Color(Color::from_rgb(0.15, 0.15, 0.18))),
+            border: iced::Border {
+                color: Color::from_rgb(0.3, 0.3, 0.35),
+                width: 1.0,
+                radius: 4.0.into(),
+            },
+            ..Default::default()
+        })
+        .width(Length::Fixed(150.0))
+        .into()
 }
 
 

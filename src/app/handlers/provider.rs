@@ -165,11 +165,6 @@ pub fn handle_provider_connection_test_complete(
     Task::none()
 }
 
-/// Gère la demande de récupération des informations du compte
-pub fn handle_fetch_account_info(app: &mut ChartApp) -> Task<crate::app::messages::Message> {
-    crate::app::realtime::fetch_account_info(app)
-}
-
 /// Gère le résultat de la récupération des informations du compte
 pub fn handle_account_info_fetched(
     app: &mut ChartApp,

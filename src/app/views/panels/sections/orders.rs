@@ -8,6 +8,24 @@ use crate::app::{
     view_styles::colors,
     data::OrderType,
 };
+use crate::finance_chart::core::{SeriesData, Candle};
+
+/// Formate un prix pour l'affichage avec une précision adaptative
+/// - >= 10000 : 0 décimales (ex: 90000)
+/// - >= 100 : 1 décimale (ex: 123.4)
+/// - >= 1 : 2 décimales (ex: 12.34)
+/// - < 1 : 4 décimales (ex: 0.1234)
+fn format_price_for_display(price: f64) -> String {
+    if price >= 10000.0 {
+        format!("{:.0}", price)
+    } else if price >= 100.0 {
+        format!("{:.1}", price)
+    } else if price >= 1.0 {
+        format!("{:.2}", price)
+    } else {
+        format!("{:.4}", price)
+    }
+}
 
 /// Vue pour la section "Ordres" avec interface de trading
 pub fn view_orders(app: &ChartApp) -> Element<'_, Message> {
@@ -23,48 +41,73 @@ pub fn view_orders(app: &ChartApp) -> Element<'_, Message> {
         })
         .unwrap_or_else(|| String::from("N/A"));
     
-    // Récupérer le prix actuel (dernière bougie)
-    // Si le symbole mémorisé correspond à la série active, utiliser son prix
-    // Sinon, chercher une série avec le symbole mémorisé
-    let current_price = {
-        let active_series = app.chart_state.series_manager
-            .active_series()
-            .next();
-        
-        // Vérifier si la série active correspond au symbole mémorisé
-        if let Some(ref selected_symbol) = app.selected_asset_symbol {
-            if let Some(active) = active_series {
-                if active.symbol == *selected_symbol {
-                    // La série active correspond au symbole mémorisé, utiliser son prix
-                    active.data.last_candle().map(|c| c.close).unwrap_or(0.0)
-                } else {
-                    // Chercher une série avec le symbole mémorisé et l'intervalle actif
-                    app.chart_state.series_manager
-                        .all_series()
-                        .find(|s| s.symbol == *selected_symbol && s.interval == active.interval)
-                        .or_else(|| {
-                            // Sinon, prendre la première série avec ce symbole
-                            app.chart_state.series_manager
-                                .all_series()
-                                .find(|s| s.symbol == *selected_symbol)
-                        })
-                        .and_then(|s| s.data.last_candle().map(|c| c.close))
-                        .unwrap_or(0.0)
-                }
+    // Récupérer la quote currency (devise de cotation) pour ce symbole
+    // Chercher dans la liste des assets chargés, sinon essayer de parser le symbole
+    let quote_currency = app.assets
+        .iter()
+        .find(|a| a.symbol == symbol)
+        .map(|a| a.quote_asset.clone())
+        .unwrap_or_else(|| {
+            // Fallback: essayer de deviner depuis le symbole (pas fiable pour tous les cas)
+            // Par exemple: BTCUSDT -> USDT, BTCJPY -> JPY
+            // Mais certains symboles comme BTCUSD1 ne suivent pas ce pattern
+            if symbol.ends_with("USDT") {
+                "USDT".to_string()
+            } else if symbol.ends_with("JPY") {
+                "JPY".to_string()
+            } else if symbol.ends_with("IDR") {
+                "IDR".to_string()
+            } else if symbol.ends_with("EUR") {
+                "EUR".to_string()
+            } else if symbol.ends_with("GBP") {
+                "GBP".to_string()
             } else {
-                // Pas de série active, chercher une série avec le symbole mémorisé
-                app.chart_state.series_manager
-                    .all_series()
-                    .find(|s| s.symbol == *selected_symbol)
-                    .and_then(|s| s.data.last_candle().map(|c| c.close))
-                    .unwrap_or(0.0)
+                // Par défaut, essayer d'extraire les 3-4 derniers caractères
+                // ou utiliser USDT comme fallback
+                if symbol.len() >= 3 {
+                    symbol[symbol.len().saturating_sub(4)..].to_string()
+                } else {
+                    "USDT".to_string() // Fallback par défaut
+                }
             }
-        } else {
-            // Pas de symbole mémorisé, utiliser la série active
-            active_series
-                .and_then(|s| s.data.last_candle().map(|c| c.close))
-                .unwrap_or(0.0)
+        });
+    
+    // Récupérer le prix actuel (dernière bougie)
+    // Pour obtenir le prix réel du marché, on doit trouver la bougie la plus récente
+    // parmi toutes les séries du même symbole, pas seulement la série active.
+    // Cela garantit que le prix ne change pas quand on change de timeframe.
+    let current_price = {
+        // Chercher toutes les séries avec le même symbole
+        let all_series_for_symbol: Vec<_> = app.chart_state.series_manager
+            .all_series()
+            .filter(|s| s.symbol == symbol)
+            .collect();
+        
+        // Trouver la bougie la plus récente parmi toutes ces séries
+        let mut latest_candle: Option<(&SeriesData, &Candle)> = None;
+        for series in all_series_for_symbol {
+            if let Some(candle) = series.data.last_candle() {
+                match latest_candle {
+                    None => latest_candle = Some((series, candle)),
+                    Some((_, latest)) => {
+                        // Comparer les timestamps pour trouver la plus récente
+                        if candle.timestamp > latest.timestamp {
+                            latest_candle = Some((series, candle));
+                        }
+                    }
+                }
+            }
         }
+        
+        // Utiliser le prix de la bougie la plus récente, ou fallback sur la série active
+        latest_candle
+            .map(|(_, candle)| candle.close)
+            .or_else(|| {
+                app.chart_state
+                    .last_candle()
+                    .map(|c| c.close)
+            })
+            .unwrap_or(0.0)
     };
     
     // Récupérer la quantité
@@ -148,7 +191,7 @@ pub fn view_orders(app: &ChartApp) -> Element<'_, Message> {
                             .size(12)
                             .color(colors::TEXT_SECONDARY),
                         Space::new().width(Length::Fixed(10.0)),
-                        text(format!("{:.2}", current_price))
+                        text(format_price_for_display(current_price))
                             .size(14)
                             .color(colors::TEXT_PRIMARY)
                             .font(iced::Font::MONOSPACE),
@@ -260,7 +303,7 @@ pub fn view_orders(app: &ChartApp) -> Element<'_, Message> {
                                 .color(colors::TEXT_PRIMARY),
                             Space::new().height(Length::Fixed(8.0)),
                             text_input(
-                                &format!("{:.2}", current_price),
+                                &format_price_for_display(current_price),
                                 &limit_price
                             )
                             .on_input(Message::UpdateLimitPrice)
@@ -277,7 +320,7 @@ pub fn view_orders(app: &ChartApp) -> Element<'_, Message> {
                             .size(12)
                             .color(colors::TEXT_SECONDARY),
                         Space::new().width(Length::Fill),
-                        text(format!("{:.2} USDT", total_amount))
+                        text(format!("{} {}", format_price_for_display(total_amount), quote_currency))
                             .size(12)
                             .color(colors::TEXT_PRIMARY)
                             .font(iced::Font::MONOSPACE),
