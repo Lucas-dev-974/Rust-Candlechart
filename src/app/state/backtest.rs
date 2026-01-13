@@ -25,6 +25,8 @@ pub struct BacktestState {
     pub backtest_trade_history: TradeHistory,
     /// Capital initial du backtest (utilisé pour calculer les performances)
     pub initial_capital: f64,
+    /// Indique si on est en train de déplacer la tête de lecture par drag
+    pub dragging_playhead: bool,
 }
 
 impl Default for BacktestState {
@@ -39,6 +41,7 @@ impl Default for BacktestState {
             selected_strategy_id: None,
             backtest_trade_history: TradeHistory::new(),
             initial_capital: 10000.0, // Capital par défaut pour le backtest
+            dragging_playhead: false,
         }
     }
 }

@@ -19,7 +19,7 @@ impl<'a> BacktestOverlayProgram<'a> {
     }
 }
 
-impl<'a, Message> Program<Message> for BacktestOverlayProgram<'a> {
+impl<'a> Program<crate::app::messages::Message> for BacktestOverlayProgram<'a> {
     type State = ();
 
     fn draw(
@@ -92,20 +92,116 @@ impl<'a, Message> Program<Message> for BacktestOverlayProgram<'a> {
     fn update(
         &self,
         _state: &mut Self::State,
-        _event: &Event,
-        _bounds: Rectangle,
-        _cursor: Cursor,
-    ) -> Option<iced::widget::canvas::Action<Message>> {
+        event: &Event,
+        bounds: Rectangle,
+        cursor: Cursor,
+    ) -> Option<iced::widget::canvas::Action<crate::app::messages::Message>> {
+        use iced::widget::canvas::Action;
+        
+        // Ne gérer les événements que si le backtest est activé et pas en lecture
+        if !self.backtest_state.enabled || self.backtest_state.is_playing {
+            return None;
+        }
+        
+        // Récupérer le timestamp actuel pour calculer la position X de la ligne
+        let timestamp = if let Some(active_series) = self.chart_state.series_manager.active_series().next() {
+            let all_candles = active_series.data.all_candles();
+            if self.backtest_state.start_index.is_some() {
+                self.backtest_state.current_candle_timestamp(all_candles)
+            } else {
+                self.backtest_state.start_timestamp
+            }
+        } else {
+            self.backtest_state.start_timestamp
+        };
+        
+        let Some(timestamp) = timestamp else {
+            return None;
+        };
+        
+        let viewport = &self.chart_state.viewport;
+        let chart_width = viewport.width();
+        if chart_width <= 0.0 {
+            return None;
+        }
+        
+        let playhead_x = viewport.time_scale().time_to_x(timestamp);
+        
+        // Zone de détection autour de la ligne (5 pixels de chaque côté)
+        const HIT_ZONE: f32 = 5.0;
+        
+        match event {
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                if let Some(position) = cursor.position_in(bounds) {
+                    // Vérifier si le clic est proche de la ligne
+                    let distance = (position.x - playhead_x).abs();
+                    if distance <= HIT_ZONE && position.x >= 0.0 && position.x <= chart_width {
+                        // Démarrer le drag
+                        if let Some(global_pos) = cursor.position() {
+                            return Some(Action::publish(crate::app::messages::Message::StartDragPlayhead(global_pos)));
+                        }
+                    }
+                }
+            }
+            Event::Mouse(mouse::Event::CursorMoved { position: _ }) => {
+                if self.backtest_state.dragging_playhead {
+                    // Mettre à jour la position pendant le drag
+                    if let Some(global_pos) = cursor.position() {
+                        return Some(Action::publish(crate::app::messages::Message::UpdateDragPlayhead(global_pos)));
+                    }
+                }
+            }
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                if self.backtest_state.dragging_playhead {
+                    // Terminer le drag
+                    return Some(Action::publish(crate::app::messages::Message::EndDragPlayhead));
+                }
+            }
+            _ => {}
+        }
+        
         None
     }
 
     fn mouse_interaction(
         &self,
         _state: &Self::State,
-        _bounds: Rectangle,
-        _cursor: Cursor,
+        bounds: Rectangle,
+        cursor: Cursor,
     ) -> mouse::Interaction {
-        // Permettre aux événements de passer à travers (pas de blocage)
+        
+        // Ne gérer que si le backtest est activé et pas en lecture
+        if !self.backtest_state.enabled || self.backtest_state.is_playing {
+            return mouse::Interaction::default();
+        }
+        
+        // Vérifier si le curseur est proche de la ligne
+        let timestamp = if let Some(active_series) = self.chart_state.series_manager.active_series().next() {
+            let all_candles = active_series.data.all_candles();
+            if self.backtest_state.start_index.is_some() {
+                self.backtest_state.current_candle_timestamp(all_candles)
+            } else {
+                self.backtest_state.start_timestamp
+            }
+        } else {
+            self.backtest_state.start_timestamp
+        };
+        
+        if let Some(timestamp) = timestamp {
+            if let Some(position) = cursor.position_in(bounds) {
+                let viewport = &self.chart_state.viewport;
+                let chart_width = viewport.width();
+                if chart_width > 0.0 {
+                    let playhead_x = viewport.time_scale().time_to_x(timestamp);
+                    const HIT_ZONE: f32 = 5.0;
+                    let distance = (position.x - playhead_x).abs();
+                    if distance <= HIT_ZONE && position.x >= 0.0 && position.x <= chart_width {
+                        return mouse::Interaction::Grab;
+                    }
+                }
+            }
+        }
+        
         mouse::Interaction::default()
     }
 }

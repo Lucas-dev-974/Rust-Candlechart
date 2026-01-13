@@ -56,6 +56,94 @@ pub fn handle_select_backtest_strategy(app: &mut ChartApp, strategy_id: Option<S
     Task::none()
 }
 
+/// Définit la tête de lecture à la position du clic droit
+pub fn handle_set_playhead_mode(app: &mut ChartApp) -> Task<Message> {
+    // Ne permettre que si le backtest est activé
+    if !app.ui.backtest_state.enabled {
+        return Task::none();
+    }
+    
+    // Ne pas permettre de redéfinir la position si la lecture est en cours
+    if app.ui.backtest_state.is_playing {
+        return Task::none();
+    }
+    
+    // Récupérer la position du clic droit (où le menu a été ouvert)
+    if let Some(absolute_position) = app.ui.chart_context_menu {
+        // Convertir la position absolue en position relative au graphique
+        let relative_position = app.chart_state.interaction.absolute_to_relative(absolute_position);
+        
+        // Convertir la position X en timestamp
+        let viewport = &app.chart_state.viewport;
+        let timestamp = viewport.time_scale().x_to_time(relative_position.x);
+        
+        // Définir la tête de lecture
+        app.ui.backtest_state.start_timestamp = Some(timestamp);
+        app.ui.backtest_state.current_index = 0;
+        app.ui.backtest_state.start_index = None;
+    }
+    
+    // Fermer le menu contextuel
+    app.ui.chart_context_menu = None;
+    
+    Task::none()
+}
+
+/// Démarre le drag de la tête de lecture
+pub fn handle_start_drag_playhead(app: &mut ChartApp, _position: iced::Point) -> Task<Message> {
+    // Ne permettre que si le backtest est activé et pas en lecture
+    if !app.ui.backtest_state.enabled || app.ui.backtest_state.is_playing {
+        return Task::none();
+    }
+    
+    // Vérifier qu'on a un timestamp de départ
+    if app.ui.backtest_state.start_timestamp.is_none() {
+        return Task::none();
+    }
+    
+    // Activer le mode drag
+    app.ui.backtest_state.dragging_playhead = true;
+    
+    Task::none()
+}
+
+/// Met à jour la position de la tête de lecture pendant le drag
+pub fn handle_update_drag_playhead(app: &mut ChartApp, position: iced::Point) -> Task<Message> {
+    // Ne permettre que si on est en train de drag
+    if !app.ui.backtest_state.dragging_playhead {
+        return Task::none();
+    }
+    
+    // Convertir la position absolue en position relative au graphique
+    let relative_position = app.chart_state.interaction.absolute_to_relative(position);
+    
+    // Convertir la position X en timestamp
+    let viewport = &app.chart_state.viewport;
+    let timestamp = viewport.time_scale().x_to_time(relative_position.x);
+    
+    // Mettre à jour le timestamp (mais ne pas réinitialiser les index tant qu'on n'a pas fini)
+    app.ui.backtest_state.start_timestamp = Some(timestamp);
+    
+    Task::none()
+}
+
+/// Termine le drag de la tête de lecture
+pub fn handle_end_drag_playhead(app: &mut ChartApp) -> Task<Message> {
+    // Ne permettre que si on est en train de drag
+    if !app.ui.backtest_state.dragging_playhead {
+        return Task::none();
+    }
+    
+    // Désactiver le mode drag
+    app.ui.backtest_state.dragging_playhead = false;
+    
+    // Réinitialiser les index pour que la barre se positionne correctement
+    app.ui.backtest_state.current_index = 0;
+    app.ui.backtest_state.start_index = None;
+    
+    Task::none()
+}
+
 /// Gère la sélection d'une date de départ pour le backtest
 pub fn handle_select_backtest_date(app: &mut ChartApp, timestamp: i64) -> Task<Message> {
     // Ne permettre la sélection que si le backtest est activé

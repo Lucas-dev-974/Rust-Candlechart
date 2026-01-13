@@ -8,39 +8,36 @@ use crate::finance_chart::{
     tools::Action as HistoryAction,
 };
 use crate::app::app_state::ChartApp;
-use crate::app::state::BottomPanelSection;
 
 /// Gère les messages du graphique
 pub fn handle_chart_message(app: &mut ChartApp, msg: ChartMessage) {
     match msg {
         // === Navigation ===
-        ChartMessage::StartPan { position, time } => {
-            app.chart_state.start_pan(position);
-            // Si un time est fourni, également gérer la sélection de date de backtest
-            if let Some(time) = time {
-                use crate::app::state::BottomPanelSection;
-                if app.ui.bottom_panel_sections.active_bottom_section == BottomPanelSection::Backtest
-                    && app.ui.backtest_state.enabled {
-                    // Ne pas permettre de redéfinir la position si la lecture est en cours
-                    if !app.ui.backtest_state.is_playing {
-                        // Mettre à jour le timestamp de départ
-                        app.ui.backtest_state.start_timestamp = Some(time);
-                        
-                        // Réinitialiser les index pour que la barre se positionne sur la nouvelle date
-                        app.ui.backtest_state.current_index = 0;
-                        app.ui.backtest_state.start_index = None;
-                    }
-                }
+        ChartMessage::StartPan { position, time: _ } => {
+            // Ne pas démarrer le pan si on est en train de drag la tête de lecture
+            if !app.ui.backtest_state.dragging_playhead {
+                app.chart_state.start_pan(position);
             }
+            // La définition de la tête de lecture se fait maintenant directement
+            // via le menu contextuel (bouton "Définir lecture")
         }
         ChartMessage::UpdatePan { position } => {
-            app.chart_state.update_pan(position);
+            // Ne pas mettre à jour le pan si on est en train de drag la tête de lecture
+            if !app.ui.backtest_state.dragging_playhead {
+                app.chart_state.update_pan(position);
+            }
         }
         ChartMessage::UpdatePanHorizontal { position } => {
-            app.chart_state.update_pan_horizontal(position);
+            // Ne pas mettre à jour le pan horizontal si on est en train de drag la tête de lecture
+            if !app.ui.backtest_state.dragging_playhead {
+                app.chart_state.update_pan_horizontal(position);
+            }
         }
         ChartMessage::EndPan => {
-            app.chart_state.end_pan();
+            // Ne pas terminer le pan si on est en train de drag la tête de lecture
+            if !app.ui.backtest_state.dragging_playhead {
+                app.chart_state.end_pan();
+            }
         }
         ChartMessage::ZoomHorizontal { factor } => {
             app.chart_state.zoom(factor);
@@ -195,24 +192,12 @@ pub fn handle_chart_message(app: &mut ChartApp, msg: ChartMessage) {
         }
         
         // === Backtest ===
-        // Note: Ce message est géré directement ici sans conversion vers Message::SelectBacktestDate.
-        // C'est pourquoi le linter signale que Message::SelectBacktestDate n'est jamais construit.
-        // Le handler handle_select_backtest_date existe dans backtest.rs mais n'est pas utilisé
-        // actuellement car le traitement se fait directement ici.
-        ChartMessage::SelectBacktestDate { time } => {
-            // Vérifier si la section Backtest est active et si le backtest est activé
-            if app.ui.bottom_panel_sections.active_bottom_section == BottomPanelSection::Backtest
-                && app.ui.backtest_state.enabled {
-                // Ne pas permettre de redéfinir la position si la lecture est en cours
-                if !app.ui.backtest_state.is_playing {
-                    // Mettre à jour le timestamp de départ
-                    app.ui.backtest_state.start_timestamp = Some(time);
-                    
-                    // Réinitialiser les index pour que la barre se positionne sur la nouvelle date
-                    app.ui.backtest_state.current_index = 0;
-                    app.ui.backtest_state.start_index = None;
-                }
-            }
+        // Note: Ce message n'est plus utilisé pour définir automatiquement la tête de lecture.
+        // La tête de lecture est maintenant définie uniquement via le menu contextuel (bouton "Définir lecture").
+        // Ce handler est conservé pour compatibilité mais ne fait plus rien automatiquement.
+        ChartMessage::SelectBacktestDate { time: _ } => {
+            // Ne plus définir automatiquement la tête de lecture
+            // Elle doit être définie via le menu contextuel (SetPlayheadMode)
         }
     }
 }

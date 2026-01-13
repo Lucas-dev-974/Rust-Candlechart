@@ -23,6 +23,14 @@ pub enum Message {
     OpenChartContextMenu(iced::Point),
     /// Fermer le menu contextuel du graphique
     CloseChartContextMenu,
+    /// Activer le mode "définir la tête de lecture" (attendre un clic sur le graphique)
+    SetPlayheadMode,
+    /// Démarrer le drag de la tête de lecture
+    StartDragPlayhead(iced::Point),
+    /// Mettre à jour la position de la tête de lecture pendant le drag
+    UpdateDragPlayhead(iced::Point),
+    /// Terminer le drag de la tête de lecture
+    EndDragPlayhead,
     
     // === Messages des axes ===
     YAxis(YAxisMessage),

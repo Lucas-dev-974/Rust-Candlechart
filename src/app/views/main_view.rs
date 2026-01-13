@@ -353,7 +353,7 @@ pub fn view_main(app: &ChartApp) -> Element<'_, Message> {
             .on_press(Message::CloseChartContextMenu),
             // Menu contextuel positionné à la position du clic
             container(
-                chart_context_menu()
+                chart_context_menu(app)
             )
             .style(|_theme| container::Style {
                 background: None,
@@ -394,19 +394,29 @@ pub fn view_main(app: &ChartApp) -> Element<'_, Message> {
 }
 
 /// Menu contextuel du graphique principal
-fn chart_context_menu() -> Element<'static, Message> {
+fn chart_context_menu(app: &ChartApp) -> Element<'_, Message> {
     use iced::widget::{button, column, container};
     use iced::{Length, Color};
     use crate::app::view_styles;
     
-    let menu_items = column![
+    let mut menu_items = column![
         button("🔄 Reset View")
             .on_press(Message::ResetView)
             .style(view_styles::icon_button_style)
             .width(Length::Fill),
-    ]
-    .spacing(4)
-    .padding(8);
+    ];
+    
+    // Ajouter le bouton "Définir lecture" si le backtest est activé
+    if app.ui.backtest_state.enabled {
+        menu_items = menu_items.push(
+            button("📍 Définir lecture")
+                .on_press(Message::SetPlayheadMode)
+                .style(view_styles::icon_button_style)
+                .width(Length::Fill)
+        );
+    }
+    
+    menu_items = menu_items.spacing(4).padding(8);
     
     container(menu_items)
         .style(|_theme| container::Style {
